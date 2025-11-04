@@ -1,0 +1,12 @@
+# Flutter-related
+**/Flutter/ephemeral/
+**/Pods/
+
+# Xcode-related
+**/dgph
+**/xcuserdata/
+# Firebase configuration files
+firebase.json
+.firebaserc
+lib/firebase_options.dart
+android/app/google-services.json
