@@ -15,18 +15,18 @@ class RegisterPage extends StatelessWidget {
   // Register method
   void register(BuildContext context) async {
     // Get auth service
-    final _auth = AuthService();
+    final auth = AuthService();
     FocusScope.of(context).unfocus();
     // Check if passwords match
     if (_pswController.text == _confirmpswController.text) {
       try {
         // Create the user
-        await _auth.registerEP(
+        await auth.registerEP(
           _emailController.text,
           _pswController.text,
+          _nameController.text,
         );
-      await _auth.signOut(); 
-
+        await auth.signOut();
       } catch (e) {
         showDialog(
           context: context,
@@ -35,8 +35,9 @@ class RegisterPage extends StatelessWidget {
             content: Text(e.toString()),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("OK"))
+                onPressed: () => Navigator.pop(context),
+                child: const Text("OK"),
+              ),
             ],
           ),
         );
@@ -53,7 +54,7 @@ class RegisterPage extends StatelessWidget {
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text("OK"),
-            )
+            ),
           ],
         ),
       );
@@ -70,7 +71,8 @@ class RegisterPage extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 24.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch, // Make children stretch to fill width
+              crossAxisAlignment: CrossAxisAlignment
+                  .stretch, // Make children stretch to fill width
               children: [
                 const SizedBox(height: 50),
 
@@ -97,10 +99,7 @@ class RegisterPage extends StatelessWidget {
                 const Text(
                   "Join us! Enter your details to get started.",
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey,
-                  ),
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
                 ),
                 const SizedBox(height: 40),
 
@@ -151,28 +150,31 @@ class RegisterPage extends StatelessWidget {
                   children: [
                     const Text(
                       "Already have your account? ",
-                      style: TextStyle(color: Colors.grey,fontSize: 16),
+                      style: TextStyle(color: Colors.grey, fontSize: 16),
                     ),
                     const SizedBox(width: 8),
                     GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primary,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: const Center(
-          child: Text(
-            "Log In",
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      ),
-    ),
+                      onTap: onTap,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            "Log In",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 20),
