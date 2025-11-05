@@ -5,6 +5,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../services/profile_service.dart';
 import 'edit_profile_page.dart';
+import 'package:provider/provider.dart';
+import '../themes/theme_service.dart';
+import 'privacy_settings_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -91,7 +94,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     // Use the primary color from your provided lightMode for visual consistency
-    final Color primaryColor = Theme.of(context).colorScheme.secondary;
+    final Color primaryColor = Theme.of(context).colorScheme.primary;
     final Color tertiaryColor = Theme.of(context).colorScheme.tertiary;
 
     if (_isLoading || userData == null) {
@@ -275,16 +278,22 @@ class _ProfilePageState extends State<ProfilePage> {
                   : "No phone provided",
             ),
             trailing: Icon(Icons.edit, color: primaryColor, size: 18),
-            onTap: () {
-              /* Navigate to edit phone field */
-            },
+            onTap: () async {
+  await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => EditProfilePage(userData!),
+    ),
+  );
+  _reloadUser(); // reload data after returning
+},
           ),
 
           // Email
           ListTile(
             leading: Icon(Icons.email, color: primaryColor),
             title: Text(safeString(userData, "email")),
-            trailing: Icon(Icons.edit, color: primaryColor, size: 18),
+            // trailing: Icon(Icons.edit, color: primaryColor, size: 18),
             onTap: () {
               /* Navigate to edit email field */
             },
@@ -305,13 +314,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
           // Notifications / Light Mode Toggle
           ListTile(
-            leading: Icon(Icons.notifications, color: primaryColor),
-            title: const Text("Notifications / Light Mode"),
+            leading: Icon(Icons.brightness_6, color: primaryColor),
+            title: const Text("Dark Mode"),
             trailing: Switch(
-              value: true, // Placeholder for theme/notification state
-              onChanged: (bool value) {
-                // Handle theme switch logic here
-              },
+              value: context.watch<ThemeService>().isDarkMode,
+              onChanged: (value) => context.read<ThemeService>().toggleTheme(value),
               activeColor: primaryColor,
             ),
           ),
@@ -322,7 +329,12 @@ class _ProfilePageState extends State<ProfilePage> {
             title: const Text("Privacy Settings"),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () {
-              /* Navigate to privacy settings */
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const PrivacySettingsPage(),
+                ),
+              );
             },
           ),
 

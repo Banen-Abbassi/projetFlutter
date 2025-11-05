@@ -98,7 +98,14 @@ class _EditProfilePageState extends State<EditProfilePage> {
               decoration: const InputDecoration(labelText: "Bio"),
             ),
             const SizedBox(height: 20),
-            ElevatedButton(onPressed: saveProfile, child: const Text("Save")),
+            ElevatedButton(onPressed: saveProfile,style: ElevatedButton.styleFrom(
+    backgroundColor: Theme.of(context).colorScheme.primary, // Fill color
+    foregroundColor: Theme.of(context).colorScheme.onPrimary, // Text color
+    padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 14),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(25),
+    ),
+  ), child: const Text("Save")),
           ],
         ),
       ),
