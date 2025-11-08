@@ -36,6 +36,10 @@ class AuthService {
             'email': email.trim(),
             'createdAt': FieldValue.serverTimestamp(),
             'name': name.trim(),
+            "friends": [],
+            "phone": "",
+            "imageUrl": "",
+            "bio": "",
           });
 
       return userCredential;

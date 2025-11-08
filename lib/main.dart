@@ -4,52 +4,28 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'themes/light_modes.dart';
+import 'themes/dark_mode.dart';
 import 'package:provider/provider.dart';
 import 'themes/theme_service.dart';
 import 'themes/dark_mode.dart';
-import 'pages/loading_page.dart'; 
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
 
-  runApp(
-    ChangeNotifierProvider(
-      create: (_) => ThemeService(),
-      child: const MyApp(),
-    ),
-  );
-  }
+  // Initialize Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Optional: Sign out current user on startup
   await FirebaseAuth.instance.signOut();
 
-  runApp(const MyApp());
+  // Wrap MyApp with ChangeNotifierProvider for ThemeService
+  runApp(
+    ChangeNotifierProvider(create: (_) => ThemeService(), child: const MyApp()),
+  );
 }
 
-}
-
-class MyApp extends StatefulWidget {
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    // Wait for 1 seconds before navigating to AuthGate
-    Future.delayed(const Duration(seconds: 1), () {
-      setState(() {
-        _isLoading = false;
-      });
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -60,11 +36,8 @@ class _MyAppState extends State<MyApp> {
       debugShowCheckedModeBanner: false,
       theme: lightMode,
       darkTheme: darkMode,
-      themeMode:
-          themeService.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-
-      // ✅ Display LoadingPage first, then AuthGate
-      home: _isLoading ? const LoadingPage() : const AuthGate(),
+      themeMode: themeService.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+      home: const AuthGate(),
     );
   }
 }

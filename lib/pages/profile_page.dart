@@ -8,7 +8,7 @@ import 'edit_profile_page.dart';
 import 'package:provider/provider.dart';
 import '../themes/theme_service.dart';
 import 'privacy_settings_page.dart';
-import '../components/logout_button.dart';
+
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
@@ -45,8 +45,8 @@ class _ProfilePageState extends State<ProfilePage> {
       return value.toString();
     }
 
-    // Format as "04 Nov 2025"
-    return DateFormat('dd MMM yyyy').format(dateTime);
+    // Format as "04 Nov 2025, 20:17"
+    return DateFormat('dd MMM yyyy, HH:mm').format(dateTime);
   }
 
   // Reload user data when coming back from the EditProfilePage
@@ -130,17 +130,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-    "My Profile",
-    style: TextStyle(color: Colors.white),
-  ),
-  backgroundColor: primaryColor,
-  centerTitle: true,
-  iconTheme: const IconThemeData(color: Colors.white),
-
-  actions: const [
-    LogoutButton(), // ✅ No Expanded, no padding, just place it here
-  ],
+        title: const Text("My Profile", style: TextStyle(color: Colors.white)),
+        backgroundColor: primaryColor, // Use primary color for the AppBar
       ),
       body: ListView(
         padding: const EdgeInsets.all(20),
@@ -246,7 +237,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   children: [
                     // 1. Friends/Contacts Stat
                     _buildStatBox(
-                      safeString(userData, "friendsCount"),
+                      safeString(userData, "friends.length"),
                       "Friends",
                     ),
 
@@ -288,14 +279,12 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             trailing: Icon(Icons.edit, color: primaryColor, size: 18),
             onTap: () async {
-  await Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => EditProfilePage(userData!),
-    ),
-  );
-  _reloadUser(); // reload data after returning
-},
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => EditProfilePage(userData!)),
+              );
+              _reloadUser(); // reload data after returning
+            },
           ),
 
           // Email
@@ -327,7 +316,8 @@ class _ProfilePageState extends State<ProfilePage> {
             title: const Text("Dark Mode"),
             trailing: Switch(
               value: context.watch<ThemeService>().isDarkMode,
-              onChanged: (value) => context.read<ThemeService>().toggleTheme(value),
+              onChanged: (value) =>
+                  context.read<ThemeService>().toggleTheme(value),
               activeColor: primaryColor,
             ),
           ),
@@ -340,9 +330,7 @@ class _ProfilePageState extends State<ProfilePage> {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const PrivacySettingsPage(),
-                ),
+                MaterialPageRoute(builder: (_) => const PrivacySettingsPage()),
               );
             },
           ),

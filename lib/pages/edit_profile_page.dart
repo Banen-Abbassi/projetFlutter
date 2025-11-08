@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/profile_service.dart';
 import '../services/storage_service.dart';
-import 'loading_page.dart';
+
 class EditProfilePage extends StatefulWidget {
   final Map<String, dynamic> userData;
   const EditProfilePage(this.userData, {super.key});
@@ -36,10 +36,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
   }
 
   Future<void> saveProfile() async {
-     Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const LoadingPage()),
-    );
     String imageUrl = widget.userData["imageUrl"] ?? "";
 
     if (newImage != null) {
@@ -55,9 +51,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
       "phone": phoneCtrl.text,
       "imageUrl": imageUrl,
     });
-  await Future.delayed(const Duration(milliseconds: 100));
 
-    Navigator.pop(context);
     Navigator.pop(context);
   }
 
@@ -68,8 +62,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
         : (widget.userData["imageUrl"] ?? "");
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Edit Profile", style: TextStyle(color: Colors.white),),backgroundColor: Theme.of(context).colorScheme.primary,centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text("Edit Profile")),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -105,14 +98,25 @@ class _EditProfilePageState extends State<EditProfilePage> {
               decoration: const InputDecoration(labelText: "Bio"),
             ),
             const SizedBox(height: 20),
-            ElevatedButton(onPressed: saveProfile,style: ElevatedButton.styleFrom(
-    backgroundColor: Theme.of(context).colorScheme.primary, // Fill color
-    foregroundColor: Theme.of(context).colorScheme.onPrimary, // Text color
-    padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 14),
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(25),
-    ),
-  ), child: const Text("Save")),
+            ElevatedButton(
+              onPressed: saveProfile,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(
+                  context,
+                ).colorScheme.primary, // Fill color
+                foregroundColor: Theme.of(
+                  context,
+                ).colorScheme.onPrimary, // Text color
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 60,
+                  vertical: 14,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(25),
+                ),
+              ),
+              child: const Text("Save"),
+            ),
           ],
         ),
       ),
