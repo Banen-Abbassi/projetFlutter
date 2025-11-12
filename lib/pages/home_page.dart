@@ -7,7 +7,10 @@ import '../services/message_service.dart';
 import 'profile_page.dart';
 import 'friend_requests_page.dart';
 import 'chat_page.dart';
-import 'visit_profile_page'; 
+import 'visit_profile_page.dart';
+import '../services/notification_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'loading_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -16,20 +19,27 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin {
+class _HomePageState extends State<HomePage>
+    with SingleTickerProviderStateMixin {
   final FriendService _friendService = FriendService();
   final MessageService _messageService = MessageService();
   final TextEditingController _searchCtrl = TextEditingController();
   final AuthService _authService = AuthService();
-  
+
   late TabController _tabController;
 
   List<Map<String, dynamic>> _searchResults = [];
   bool _isSearching = false;
-  
-  Timer? _debounce; 
-  int _requestCount = 0; 
-  StreamSubscription<int>? _requestCountSubscription; 
+
+  Timer? _debounce;
+  int _requestCount = 0;
+  StreamSubscription<int>? _requestCountSubscription;
+
+  // Central listener for all pop-up notifications
+  StreamSubscription<QuerySnapshot>? _notificationSubscription;
+  // Listener for the badge count on the bell icon
+  int _unreadNotificationCount = 0;
+  StreamSubscription<int>? _unreadNotificationSubscription;
 
   @override
   void initState() {
@@ -37,6 +47,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     _tabController = TabController(length: 2, vsync: this);
     _searchCtrl.addListener(_onSearchChanged);
     _listenToFriendRequests();
+    _listenForNewNotifications();
+    _listenToUnreadNotifications();
   }
 
   @override
@@ -46,15 +58,90 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     _tabController.dispose();
     _debounce?.cancel();
     _requestCountSubscription?.cancel();
+    _notificationSubscription?.cancel();
+    _unreadNotificationSubscription?.cancel();
     super.dispose();
   }
 
-  // --- Handlers ---
+  // --- Notification Listeners ---
+
+  /// Central listener for all real-time pop-up notifications.
+  void _listenForNewNotifications() {
+    _notificationSubscription = _friendService
+        .getNewNotificationsStream()
+        .listen((snapshot) async {
+      for (var change in snapshot.docChanges) {
+        if (change.type == DocumentChangeType.added) {
+          final notificationData = change.doc.data() as Map<String, dynamic>?;
+          if (notificationData == null) continue;
+
+          final String type = notificationData['type'] ?? '';
+
+          if (type == 'friend_request') {
+            final fromUid = notificationData['senderId'];
+            if (fromUid != null) {
+              final userDoc = await _friendService.getUserDetails(fromUid);
+              final senderName = userDoc.data() != null ? (userDoc.data()! as Map)['name'] ?? 'Someone' : 'Someone';
+              
+              NotificationService.showInAppNotification(
+                title: "New Friend Request",
+                body: "$senderName sent you a friend request.",
+                onTap: () => _navigateToWithLoadingIndicator(FriendRequestsPage()),
+              );
+            }
+          } else if (type == 'new_message') {
+            final String senderName = notificationData['title'] ?? 'New Message';
+            final String messageBody = notificationData['body'] ?? '...';
+            final String chatId = notificationData['chatId'] ?? '';
+            final String senderId = notificationData['senderId'] ?? '';
+
+            if (chatId.isNotEmpty && senderId.isNotEmpty) {
+              NotificationService.showInAppNotification(
+                title: senderName,
+                body: messageBody,
+                onTap: () => _navigateToChat(chatId, senderId, senderName),
+              );
+            }
+          }
+        }
+      }
+    });
+  }
+
+  void _listenToUnreadNotifications() {
+    _unreadNotificationSubscription =
+        _friendService.getUnreadNotificationCountStream().listen((count) {
+      if (mounted) {
+        setState(() {
+          _unreadNotificationCount = count;
+        });
+      }
+    });
+  }
+
+  // --- Other Handlers & Methods ---
+  void _navigateToWithLoadingIndicator(Widget page) async {
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const LoadingPage()),
+    );
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => page),
+    );
+  }
+
   void _listenToFriendRequests() {
-    _requestCountSubscription = _friendService.getIncomingRequestsCountStream().listen((count) {
-      setState(() {
-        _requestCount = count;
-      });
+    _requestCountSubscription =
+        _friendService.getIncomingRequestsCountStream().listen((count) {
+      if (mounted) {
+        setState(() {
+          _requestCount = count;
+        });
+      }
     });
   }
 
@@ -67,20 +154,17 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
   void _searchUsers(String query) async {
     if (query.isEmpty) {
-      setState(() {
-        _searchResults = [];
-        _isSearching = false;
-      });
+      if (mounted) setState(() => _searchResults = []);
       return;
     }
-    
-    setState(() => _isSearching = true);
+    if (mounted) setState(() => _isSearching = true);
     final res = await _friendService.searchUsersCaseInsensitive(query);
-    
-    setState(() {
-      _searchResults = res;
-      _isSearching = false;
-    });
+    if (mounted) {
+      setState(() {
+        _searchResults = res;
+        _isSearching = false;
+      });
+    }
   }
 
   void _openProfileMenu() {
@@ -96,7 +180,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 title: const Text("My Profile"),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfilePage())); 
+                  _navigateToWithLoadingIndicator(const ProfilePage());
                 },
               ),
               ListTile(
@@ -104,7 +188,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 title: const Text("Friend Requests"),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => FriendRequestsPage()));
+                  _navigateToWithLoadingIndicator(FriendRequestsPage());
                 },
               ),
               ListTile(
@@ -112,7 +196,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 title: const Text("Sign Out", style: TextStyle(color: Colors.red)),
                 onTap: () async {
                   Navigator.pop(context);
-                  await _authService.signOut(); 
+                  await _authService.signOut();
                 },
               ),
             ],
@@ -123,52 +207,187 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   }
 
   void _visitUser(Map<String, dynamic> user) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => VisitProfilePage(user: user)),
+    _navigateToWithLoadingIndicator(VisitProfilePage(user: user));
+  }
+
+  void _navigateToChat(String chatId, String receiverId, String receiverName,
+      {String? receiverImageUrl}) {
+    _navigateToWithLoadingIndicator(
+      ChatPage(
+        chatId: chatId,
+        receiverId: receiverId,
+        receiverName: receiverName,
+        receiverImageUrl: receiverImageUrl,
+      ),
     );
   }
 
-  void _navigateToChat(String chatId, String receiverId, String receiverName) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ChatPage(
-          chatId: chatId,
-          receiverId: receiverId,
-          receiverName: receiverName,
-        ),
-      ),
+  void _showNotificationsPanel() {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.5,
+          maxChildSize: 0.9,
+          minChildSize: 0.3,
+          builder: (_, scrollController) {
+            return StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(userId)
+                  .collection('notifications')
+                  .orderBy('timestamp', descending: true)
+                  .limit(50)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(20.0),
+                      child: Text("You have no notifications.",
+                          style: TextStyle(fontSize: 16)),
+                    ),
+                  );
+                }
+                final notifications = snapshot.data!.docs;
+                return Container(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Text("Notifications",
+                            style: Theme.of(context).textTheme.titleLarge),
+                      ),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: ListView.builder(
+                          controller: scrollController,
+                          itemCount: notifications.length,
+                          itemBuilder: (context, index) {
+                            final notification = notifications[index];
+                            final data =
+                                notification.data() as Map<String, dynamic>;
+                            final bool isRead = data['read'] ?? false;
+                            return ListTile(
+                              leading: Icon(
+                                isRead
+                                    ? Icons.notifications_none
+                                    : Icons.notifications_active,
+                                color: isRead
+                                    ? Colors.grey
+                                    : Theme.of(context).primaryColor,
+                              ),
+                              title: Text(data['title'] ?? 'No Title'),
+                              subtitle: Text(data['body'] ?? 'No Body'),
+                              onTap: () async {
+                                if (!isRead) {
+                                  await notification.reference
+                                      .update({'read': true});
+                                }
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 
   // --- UI Builders ---
-
-  Widget _buildChatTile(
-      BuildContext context, 
-      String chatId, 
-      String name, 
-      String subtitle, 
-      String receiverId,
-      {String? imageUrl}) {
-      
-    final NetworkImage? networkImage = 
-        (imageUrl != null && imageUrl.isNotEmpty) ? NetworkImage(imageUrl) : null;
-        
-    return ListTile(
-      leading: CircleAvatar(
-        radius: 25, 
-        backgroundColor: Colors.purple.shade700, 
-        backgroundImage: networkImage,
-        child: networkImage == null 
-            ? const Icon(Icons.person, size: 25, color: Colors.white)
-            : null,
-      ),
-      title: Text(name),
-      subtitle: Text(subtitle),
-      trailing: const Text('...'),
-      onTap: () {
-        _navigateToChat(chatId, receiverId, name);
+  Widget _buildDiscussionsList() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _messageService.getUserChats(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text("Error: ${snapshot.error}"));
+        }
+        final chatDocs = snapshot.data?.docs ?? [];
+        if (chatDocs.isEmpty) {
+          return const Center(
+              child: Text("Start a discussion by searching for a friend!"));
+        }
+        return ListView.builder(
+          itemCount: chatDocs.length,
+          itemBuilder: (context, i) {
+            final chat = chatDocs[i].data() as Map<String, dynamic>;
+            final chatId = chatDocs[i].id;
+            final currentUserId = _messageService.getCurrentUserId();
+            final participants = List<String>.from(chat['participants']);
+            final receiverId = participants.firstWhere(
+                (id) => id != currentUserId,
+                orElse: () => currentUserId);
+            return FutureBuilder<DocumentSnapshot>(
+              future: _friendService.getUserDetails(receiverId),
+              builder: (context, userSnapshot) {
+                String name = "Loading...";
+                String? imageUrl;
+                if (userSnapshot.hasData && userSnapshot.data!.exists) {
+                  final userData =
+                      userSnapshot.data!.data() as Map<String, dynamic>;
+                  name = userData['name'] ?? 'Unknown User';
+                  imageUrl = userData['imageUrl'];
+                }
+                return StreamBuilder<QuerySnapshot>(
+                  stream: _messageService.getLastMessage(chatId),
+                  builder: (context, messageSnapshot) {
+                    String subtitle = "No messages yet";
+                    if (messageSnapshot.hasData &&
+                        messageSnapshot.data!.docs.isNotEmpty) {
+                      final lastMessage = messageSnapshot.data!.docs.first
+                          .data() as Map<String, dynamic>;
+                      final String messageContent =
+                          lastMessage["text"] ?? "Message unavailable";
+                      final String? senderId =
+                          lastMessage["senderId"] as String?;
+                      subtitle = (senderId != null && senderId == currentUserId)
+                          ? "You: $messageContent"
+                          : messageContent;
+                    }
+                    return ListTile(
+                      leading: CircleAvatar(
+                        radius: 25,
+                        backgroundColor: Colors.purple.shade700,
+                        backgroundImage: (imageUrl != null && imageUrl.isNotEmpty)
+                            ? NetworkImage(imageUrl)
+                            : null,
+                        child: (imageUrl == null || imageUrl.isEmpty)
+                            ? const Icon(Icons.person,
+                                size: 25, color: Colors.white)
+                            : null,
+                      ),
+                      title: Text(name),
+                      subtitle: Text(subtitle,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      onTap: () {
+                        _navigateToChat(chatId, receiverId, name,
+                            receiverImageUrl: imageUrl);
+                      },
+                    );
+                  },
+                );
+              },
+            );
+          },
+        );
       },
     );
   }
@@ -185,7 +404,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           final user = _searchResults[i];
           return ListTile(
             leading: CircleAvatar(
-              backgroundColor: Colors.purple.shade300, 
+              backgroundColor: Colors.purple.shade300,
               backgroundImage: user['imageUrl'] != null && user['imageUrl'] != ''
                   ? NetworkImage(user['imageUrl'])
                   : null,
@@ -202,152 +421,117 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     }
   }
 
-  Widget _buildDiscussionsList() {
-    // Stream chats for the current user
-    return StreamBuilder<QuerySnapshot>(
-      stream: _messageService.getUserChats(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(child: Text("Error: ${snapshot.error}"));
-        }
-        
-        final chatDocs = snapshot.data!.docs;
-        if (chatDocs.isEmpty) {
-          return const Center(child: Text("Start a discussion by searching for a friend!"));
-        }
-
-        return ListView.builder(
-          itemCount: chatDocs.length,
-          itemBuilder: (context, i) {
-            final chat = chatDocs[i].data() as Map<String, dynamic>;
-            final chatId = chatDocs[i].id;
-            
-            final currentUserId = _messageService.getCurrentUserId();
-            final participants = List<String>.from(chat['participants']);
-            final receiverId = participants.firstWhere((id) => id != currentUserId, orElse: () => currentUserId);
-            
-            // FutureBuilder to fetch the receiver's details for the tile
-            return FutureBuilder<DocumentSnapshot>(
-              future: _friendService.getUserDetails(receiverId),
-              builder: (context, userSnapshot) {
-                String name = "Loading...";
-                String subtitle = "No messages yet";
-                String? imageUrl;
-
-                if (userSnapshot.hasData && userSnapshot.data!.exists) {
-                  final userData = userSnapshot.data!.data() as Map<String, dynamic>;
-                  name = userData['name'] ?? 'Unknown User';
-                  imageUrl = userData['imageUrl'];
-                }
-
-                return _buildChatTile(
-                  context,
-                  chatId,
-                  name,
-                  subtitle,
-                  receiverId,
-                  imageUrl: imageUrl,
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final bool showSearchResults = _searchCtrl.text.isNotEmpty;
-    final primaryColor = Theme.of(context).colorScheme.primary; 
+    final primaryColor = Theme.of(context).colorScheme.primary;
 
     return Scaffold(
       body: Column(
         children: [
-          // 1. Custom Header Container
           Container(
             padding: EdgeInsets.only(
-              top: MediaQuery.of(context).padding.top + 5, 
-              left: 20, 
-              right: 20, 
-              bottom: 0, 
+              top: MediaQuery.of(context).padding.top + 5,
+              left: 20,
+              right: 20,
+              bottom: 0,
             ),
             color: primaryColor,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Title & Notification Icon
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      "Home", 
-                      style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)
+                    GestureDetector(
+                      onTap: _openProfileMenu,
+                      child: const CircleAvatar(
+                        radius: 20,
+                        backgroundColor: Colors.white,
+                        child: Icon(Icons.person, color: Colors.purple),
+                      ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.notifications, color: Colors.white),
-                      onPressed: () { /* Notification action */ },
+                    const Expanded(
+                      child: Center(
+                        child: Text(
+                          "+➋➊➏",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Stack(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.notifications,
+                              color: Colors.white),
+                          onPressed: _showNotificationsPanel,
+                        ),
+                        if (_unreadNotificationCount > 0)
+                          Positioned(
+                            right: 8,
+                            top: 8,
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(
+                                color: Colors.red,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              constraints: const BoxConstraints(
+                                minWidth: 16,
+                                minHeight: 16,
+                              ),
+                              child: Text(
+                                '$_unreadNotificationCount',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ],
                 ),
                 const SizedBox(height: 10),
-
-                // Avatar + Search Bar
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(right: 15.0),
-                      child: GestureDetector(
-                        onTap: _openProfileMenu,
-                        child: const CircleAvatar(
-                          radius: 20,
-                          backgroundColor: Colors.white, 
-                          child: Icon(Icons.person, color: Colors.purple),
-                        ),
-                      ),
+                Container(
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(25),
+                  ),
+                  child: TextField(
+                    controller: _searchCtrl,
+                    style: const TextStyle(color: Colors.black87),
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      // contentPadding: const EdgeInsets.only(top: 10),
+                      prefixIcon:
+                          Icon(Icons.search, color: Colors.grey.shade600),
+                      suffixIcon: _searchCtrl.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              color: Colors.grey.shade600,
+                              onPressed: () {
+                                _searchCtrl.clear();
+                              },
+                            )
+                          : null,
+                      hintText: "Search friends or chats",
+                      hintStyle:
+                          TextStyle(color: Colors.grey.shade600, fontSize: 14),
                     ),
-                    Expanded(
-                      child: Container(
-                        height: 40,
-                        padding: const EdgeInsets.symmetric(horizontal: 15),
-                        decoration: BoxDecoration(
-                          color: primaryColor.withOpacity(0.8), 
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.search, color: Colors.white70, size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextField(
-                                controller: _searchCtrl,
-                                style: const TextStyle(color: Colors.white),
-                                decoration: const InputDecoration(
-                                  hintText: "Search friends or chats",
-                                  hintStyle: TextStyle(color: Colors.white70, fontSize: 14),
-                                  border: InputBorder.none,
-                                  isDense: true,
-                                ),
-                              ),
-                            ),
-                            const Icon(Icons.mail, color: Colors.white, size: 20),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
                 const SizedBox(height: 15),
-
-                // Tab Bar
                 TabBar(
                   controller: _tabController,
-                  isScrollable: false, 
-                  indicatorSize: TabBarIndicatorSize.tab, 
+                  isScrollable: false,
+                  indicatorSize: TabBarIndicatorSize.tab,
                   indicator: BoxDecoration(
                     borderRadius: BorderRadius.circular(20),
                     color: Colors.white,
@@ -361,12 +545,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const Text("Requests"),
-                          // Real-time request badge
                           if (_requestCount > 0)
                             Padding(
                               padding: const EdgeInsets.only(left: 4.0),
                               child: CircleAvatar(
-                                radius: 7, 
+                                radius: 7,
                                 backgroundColor: Colors.red,
                                 child: Text(
                                   '$_requestCount',
@@ -383,20 +566,18 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                     ),
                   ],
                 ),
-                const SizedBox(height: 10), 
+                const SizedBox(height: 10),
               ],
             ),
           ),
-          
-          // 2. Main Body Content
           Expanded(
-            child: showSearchResults 
+            child: showSearchResults
                 ? _buildSearchResults()
                 : TabBarView(
                     controller: _tabController,
                     children: [
-                      _buildDiscussionsList(), 
-                      const Center(child: Text("Friend Requests List")), 
+                      _buildDiscussionsList(),
+                      FriendRequestsPage(showAppBar: false),
                     ],
                   ),
           ),

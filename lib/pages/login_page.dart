@@ -13,10 +13,13 @@ class LoginPage extends StatelessWidget {
   void login(BuildContext context) async {
     // Get auth service
     final authService = AuthService();
-    FocusScope.of(context).unfocus();
+    FocusScope.of(context).unfocus(); 
 
     try {
-      await authService.signInEP(_emailController.text, _pswController.text);
+      await authService.signInEP(
+        _emailController.text,
+        _pswController.text,
+      );
       // AuthGate will handle navigation to HomePage
     } catch (e) {
       showDialog(
@@ -64,7 +67,7 @@ class LoginPage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 10),
-
+                
                 // Subtitle
                 const Text(
                   "Sign in to your account",
@@ -80,7 +83,7 @@ class LoginPage extends StatelessWidget {
                   controller: _emailController,
                 ),
                 const SizedBox(height: 20),
-
+                
                 // Password Textfield
                 MyTextfield(
                   holderPlace: "Password",
@@ -98,7 +101,10 @@ class LoginPage extends StatelessWidget {
                   children: [
                     const Text(
                       "Don't have your account?",
-                      style: TextStyle(color: Colors.grey, fontSize: 16),
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontSize: 16,
+                      ),
                     ),
                     const SizedBox(width: 8),
 
@@ -106,9 +112,7 @@ class LoginPage extends StatelessWidget {
                       onTap: onTap,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 8,
-                        ),
+                            horizontal: 24, vertical: 8),
                         decoration: BoxDecoration(
                           color: Theme.of(context).colorScheme.primary,
                           borderRadius: BorderRadius.circular(20),

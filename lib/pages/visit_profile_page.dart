@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/friend_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:chat_app/pages/chat_page.dart';
+import 'package:chat_app/pages/chat_page.dart'; // Make sure this path is correct
 
 class VisitProfilePage extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -13,9 +13,8 @@ class VisitProfilePage extends StatefulWidget {
 
 class _VisitProfilePageState extends State<VisitProfilePage> {
   final FriendService _friendService = FriendService();
-  // We need to also store the requestId for 'received' status
-  String _status = "none"; // "none", "sent", "received", "friends"
-  String? _requestId; 
+  String _status = "none";
+  String? _requestId;
 
   @override
   void initState() {
@@ -23,61 +22,72 @@ class _VisitProfilePageState extends State<VisitProfilePage> {
     _loadStatus();
   }
 
-  // --- NEW/UPDATED Message Handler ---
-void _handleMessage() async {
-  // 1. Show a loading indicator (optional, but good practice)
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text('Opening chat...')),
-  );
+  void _handleMessage() async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Opening chat...')),
+    );
 
-  // 2. Get the unique chatId using the new service method
-  final chatId = await _friendService.messageService.getOrCreateChat(
-    widget.user['uid'] // The ID of the user being visited
-  );
+    final chatId = await _friendService.messageService.getOrCreateChat(widget.user['uid']);
 
-  // 3. Navigate to the ChatPage using the retrieved ID and the friend's name
-Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (context) => ChatPage(
-        chatId: chatId, // REQUIRED PARAMETER 1: Passed the dynamic chat ID
-        receiverId: widget.user['uid'], // REQUIRED PARAMETER 2
-        receiverName: widget.user['name'] ?? 'Chat', // REQUIRED PARAMETER 3
+    if (!mounted) return;
+
+    // Use pushReplacement if you came from a loading screen, or push for normal navigation
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatPage(
+          chatId: chatId,
+          receiverId: widget.user['uid'],
+          receiverName: widget.user['name'] ?? 'Chat',
+          receiverImageUrl: widget.user['imageUrl'], // Pass the image URL
+        ),
       ),
-    ),
-  );
-  
-  // 4. Hide the loading message
-  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-}
+    );
 
-  // Load status and request ID if necessary
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+  }
+
   void _loadStatus() async {
     final result = await _friendService.checkFriendStatusWithId(widget.user['uid']);
-    setState(() {
-      _status = result['status'] as String;
-      _requestId = result['requestId'] as String?;
-    });
+    if (mounted) {
+      setState(() {
+        _status = result['status'] as String;
+        _requestId = result['requestId'] as String?;
+      });
+    }
   }
 
   // --- Handlers ---
 
-  // For "Add Friend" (status: none)
   void _handleSendRequest() async {
     if (_status == 'none') {
       await _friendService.sendRequest(widget.user['uid']);
-      setState(() => _status = 'sent');
+      _loadStatus(); // Reload status to get the new 'sent' state and requestId
     }
   }
 
-  // For "Unfriend" (status: friends)
-  void _handleUnfriend() async {
-    await _friendService.unfriend(widget.user['uid']);
-    setState(() => _status = 'none');
-    Navigator.of(context).pop(); // Close dialog after action
+  // --- 1. THIS FUNCTION IS NOW UNCOMMENTED ---
+  // For "Cancel Request" (status: sent)
+  void _handleDeleteRequest() async {
+    if (_status == 'sent' && _requestId != null) {
+      await _friendService.deleteRequest(_requestId!);
+      if (mounted) {
+        setState(() {
+          _status = 'none'; // Revert status back to 'none'
+          _requestId = null;
+        });
+      }
+    }
   }
 
-  // Confirmation dialog for "Unfriend"
+  void _handleUnfriend() async {
+    await _friendService.unfriend(widget.user['uid']);
+    if (mounted) {
+      setState(() => _status = 'none');
+      Navigator.of(context).pop();
+    }
+  }
+
   void _showUnfriendConfirmationDialog() {
     showDialog(
       context: context,
@@ -98,43 +108,42 @@ Navigator.push(
     );
   }
 
-  // For "Accept Request" (status: received) - You'll need an acceptRequest method in FriendService!
-  // This logic is simplified for demonstration. You would call acceptRequest here.
   void _handleAcceptRequest() async {
-    // You'll need to update your FriendService to return the requestId for 'received' status
     if (_status == 'received' && _requestId != null) {
-      // Assuming you pass the requestId and the sender's UID to accept
-      await _friendService.acceptRequest(_requestId!, widget.user['uid']); 
-      setState(() => _status = 'friends');
+      await _friendService.acceptRequest(_requestId!, widget.user['uid']);
+      if (mounted) {
+        setState(() => _status = 'friends');
+      }
     }
   }
-  
+
   // --- UI Builders ---
 
-  // Builds the three action buttons: Message, Add Friend/Status, More
   Widget _buildActionButtons() {
     Widget friendButton;
-    
+
     switch (_status) {
+      // --- 2. THIS 'sent' CASE IS NOW UPDATED ---
       case 'sent':
         friendButton = OutlinedButton(
-          onPressed: null, // Typically disabled for 'sent'
+          onPressed: _handleDeleteRequest, // Connects to the delete function
           style: OutlinedButton.styleFrom(
-            side: const BorderSide(color: Colors.grey),
+            foregroundColor: Colors.red,
+            side: const BorderSide(color: Colors.red),
+            alignment: Alignment.center,
           ),
-          child: const Text("Request Sent"),
+  child: const Center(child: Text("Cancel Request")),
         );
         break;
       case 'received':
         friendButton = ElevatedButton(
-          onPressed: _handleAcceptRequest, // Accept logic
+          onPressed: _handleAcceptRequest,
           child: const Text("Accept Request"),
         );
-        // You might want a separate Reject button or put a menu in 'More'
         break;
       case 'friends':
         friendButton = OutlinedButton(
-          onPressed: _showUnfriendConfirmationDialog, // Unfriend logic
+          onPressed: _showUnfriendConfirmationDialog,
           style: OutlinedButton.styleFrom(
             side: const BorderSide(color: Colors.grey),
           ),
@@ -150,47 +159,30 @@ Navigator.push(
     }
 
     return Row(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      // 1. Message Button
-      Expanded(
-        child: OutlinedButton(
-          // FIX 1: Pass the function reference, do NOT call it with ()
-          onPressed: _handleMessage, 
-          child: const Text("Message"),
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Expanded(
+          child: OutlinedButton(
+            onPressed: _handleMessage,
+            child: const Text("Message"),
+          ),
         ),
-      ),
-      
-      // FIX 2: SizedBox(width: 8) must be INSIDE the Row children list, 
-      // but OUTSIDE the Expanded widget.
-      const SizedBox(width: 8), 
-
-      // 2. Friend Status Button
-      Expanded(
-        child: friendButton,
-      ),
-      
-      // FIX 3: Another separator
-      const SizedBox(width: 8), 
-
-      // 3. More Button
-      OutlinedButton(
-        onPressed: () {
-          // TODO: Implement More options
-        },
-        child: const Text("More"),
-      ),
-    ],
-  );
+        const SizedBox(width: 8),
+        Expanded(
+          child: friendButton,
+        ),
+        const SizedBox(width: 8),
+        OutlinedButton(
+          onPressed: () {},
+          child: const Text("More"),
+        ),
+      ],
+    );
   }
 
-  // Builds a ListTile for contact info
   Widget _buildInfoTile(IconData icon, String? text, {bool isEmail = false}) {
-    // Ensure we display an empty string if text is null/empty to match the structure,
-    // but only if you want to always show the tile. 
-    // Otherwise, you could check 'if (text?.isNotEmpty ?? false)' before building.
-    final display = text?.isNotEmpty == true ? text! : 'N/A'; 
-    if (display == 'N/A' && !isEmail) return const SizedBox.shrink(); // Hide tile if no info (optional)
+    final display = text?.isNotEmpty == true ? text! : 'N/A';
+    if (display == 'N/A' && !isEmail) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -210,22 +202,17 @@ Navigator.push(
   @override
   Widget build(BuildContext context) {
     final user = widget.user;
-
-    // Use default values if data is missing
     final phone = user['phone'] as String? ?? '';
     final email = user['email'] as String? ?? '';
-    // Format createdAt/Joined time here if needed, or just display the value
-    final joined = user['createdAt'] != null 
-        ? 'Joined: ${user['createdAt'] is Timestamp ? (user['createdAt'] as Timestamp).toDate().toString().substring(0, 10) : user['createdAt']}' 
+    final joined = user['createdAt'] != null
+        ? 'Joined: ${(user['createdAt'] as Timestamp).toDate().toString().substring(0, 10)}'
         : 'Joined: N/A';
-    
-    // Check for "Online now" status (you'd need real-time data for this, simplified here)
-    final isOnline = true; 
+    final isOnline = true;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Visit Account"), // Title from image
-        backgroundColor: Colors.purple, // Match purple theme
+        title: const Text("Visit Account"),
+        backgroundColor: Colors.purple,
         foregroundColor: Colors.white,
       ),
       body: SingleChildScrollView(
@@ -234,7 +221,6 @@ Navigator.push(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // --- Profile Image & Name ---
               Center(
                 child: Column(
                   children: [
@@ -243,12 +229,12 @@ Navigator.push(
                       backgroundImage: user['imageUrl'] != null && user['imageUrl'] != ''
                           ? NetworkImage(user['imageUrl'])
                           : null,
-                      child: user['imageUrl'] == null || user['imageUrl'] == '' ? const Icon(Icons.person, size: 60, color: Colors.white) : null,
+                      child: user['imageUrl'] == null || user['imageUrl'] == ''
+                          ? const Icon(Icons.person, size: 60, color: Colors.white)
+                          : null,
                       backgroundColor: Colors.purple.shade200,
                     ),
                     const SizedBox(height: 10),
-                    // Optional: Profile Picture Email/Message icon as in image
-                    // Icon(Icons.mail, size: 24, color: Colors.purple), 
                   ],
                 ),
               ),
@@ -261,7 +247,7 @@ Navigator.push(
               ),
               Center(
                 child: Text(
-                  user['email'] != null ? '@${user['email']}' : '@user_handle', // Assuming a 'username' field
+                  '@${user['email'] ?? 'user_handle'}',
                   style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
                 ),
               ),
@@ -272,34 +258,21 @@ Navigator.push(
                 ),
               ),
               const SizedBox(height: 20),
-
-              // --- Action Buttons ---
               _buildActionButtons(),
-              
               const SizedBox(height: 30),
-
-              // --- Contact/Info Tiles ---
               _buildInfoTile(Icons.phone, phone),
               _buildInfoTile(Icons.email, email, isEmail: true),
               _buildInfoTile(Icons.calendar_today, joined),
-              
               const SizedBox(height: 30),
-
-              // --- Block/Report Buttons ---
-              // These buttons should generally be styled for caution
               TextButton(
-                onPressed: () {
-                  // TODO: Implement Block User logic
-                },
+                onPressed: () {},
                 child: const Text(
                   "Block User",
                   style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
                 ),
               ),
               TextButton(
-                onPressed: () {
-                  // TODO: Implement Report User logic
-                },
+                onPressed: () {},
                 child: const Text(
                   "Report User",
                   style: TextStyle(color: Colors.red),
