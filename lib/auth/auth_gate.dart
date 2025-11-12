@@ -23,7 +23,7 @@ class AuthGate extends StatelessWidget {
 
         // User is signed in
         if (snapshot.hasData) {
-          return HomePage();
+          return ProfilePage();
         }
 
         // User is NOT signed in

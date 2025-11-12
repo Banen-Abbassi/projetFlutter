@@ -1,14 +1,20 @@
-
 import 'package:flutter/material.dart';
 import '../services/friend_service.dart';
 
 class FriendRequestsPage extends StatefulWidget {
-  @override
+
+    final bool showAppBar;
+ const FriendRequestsPage({
+    super.key,
+    this.showAppBar = true,
+  });
+    @override
   State<FriendRequestsPage> createState() => _FriendRequestsPageState();
 }
 
 class _FriendRequestsPageState extends State<FriendRequestsPage> {
   final FriendService _friendService = FriendService();
+  
   List<Map<String, dynamic>> _requests = [];
   bool _isLoading = true;
 
@@ -39,7 +45,13 @@ class _FriendRequestsPageState extends State<FriendRequestsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("Friend Requests")),
+  appBar: widget.showAppBar
+          ? AppBar(title: const Text("Friend Requests"),       
+          backgroundColor: Theme.of(context).colorScheme.primary,
+          foregroundColor: Colors.white,
+)
+          : null, // If showAppBar is false, this will be null, hiding it.
+          
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
           : _requests.isEmpty

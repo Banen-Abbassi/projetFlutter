@@ -7,7 +7,27 @@ import 'themes/light_modes.dart';
 import 'themes/dark_mode.dart';
 import 'package:provider/provider.dart';
 import 'themes/theme_service.dart';
-import 'themes/dark_mode.dart';
+import 'pages/loading_page.dart';
+import 'pages/home_page.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'services/notification_service.dart';
+/// 🔥 REQUIRED FOR BACKGROUND NOTIFICATIONS
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  print("✅ Background message received: ${message.messageId}");
+}
+
+/// ✅ Declare this ABOVE main()
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+    FlutterLocalNotificationsPlugin();
+
+const AndroidNotificationChannel channel = AndroidNotificationChannel(
+  'high_importance_channel',
+  'Messages',
+  importance: Importance.max,
+);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,29 +35,61 @@ void main() async {
   // Initialize Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Optional: Sign out current user on startup
-  await FirebaseAuth.instance.signOut();
+  // ✅ Create notification channel BEFORE listening for messages
+  await flutterLocalNotificationsPlugin
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(channel);
 
-  // Wrap MyApp with ChangeNotifierProvider for ThemeService
+  // ✅ Register background handler
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
   runApp(
-    ChangeNotifierProvider(create: (_) => ThemeService(), child: const MyApp()),
+    ChangeNotifierProvider(
+      create: (_) => ThemeService(),
+      child: const MyApp(),
+    ),
   );
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Wait for 1 seconds before navigating to AuthGate
+    Future.delayed(const Duration(seconds: 1), () {
+      setState(() => _isLoading = false);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final themeService = Provider.of<ThemeService>(context);
 
     return MaterialApp(
+      scaffoldMessengerKey: NotificationService.scaffoldMessengerKey,
       title: 'Chat App',
       debugShowCheckedModeBanner: false,
       theme: lightMode,
       darkTheme: darkMode,
       themeMode: themeService.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-      home: const AuthGate(),
+      home: _isLoading
+          ? const LoadingPage()
+          : StreamBuilder<User?>(
+              stream: FirebaseAuth.instance.authStateChanges(),
+              builder: (context, snapshot) {
+                return snapshot.hasData ? const HomePage() : const AuthGate();
+              },
+            ),
     );
   }
 }
