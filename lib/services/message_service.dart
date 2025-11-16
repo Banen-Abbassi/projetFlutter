@@ -34,6 +34,14 @@ class MessageService {
 String getCurrentUserId() {
   return _auth.currentUser!.uid;
 }
+Future<QuerySnapshot> getUserChatsOnce() async {
+  final uid = FirebaseAuth.instance.currentUser!.uid;
+
+  return FirebaseFirestore.instance
+      .collection('chats')
+      .where('participants', arrayContains: uid)
+      .get();   // <-- No stream, no realtime loading
+}
 
   /// Sends a message, creates a notification, and updates the chat's timestamp.
   Future<void> sendMessage(String chatId, String receiverId, String text) async {

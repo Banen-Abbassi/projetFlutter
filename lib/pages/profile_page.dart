@@ -179,26 +179,18 @@ class _ProfilePageState extends State<ProfilePage> {
                     Expanded(
                       child: InkWell(
                         borderRadius: BorderRadius.circular(8),
-                        onTap: () async {
-  final rawFriends = userData?['friends'] ?? [];
+                         onTap: () {
+                          // 1. Safely get the friends list (which is a List of UIDs).
+                          final List<dynamic> friendsList = userData?['friends'] ?? [];
 
-  // Convert friend UIDs to full user data
-  List<Map<String, dynamic>> friendsData = [];
-  for (var uid in rawFriends) {
-    if (uid is String) {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-      if (doc.exists) {
-        friendsData.add(doc.data()!); // Full user map
-      }
-    }
-  }
-
-  // Navigate with proper data
-  Navigator.push(
-    context,
-    MaterialPageRoute(builder: (_) => FriendsListPage(friends: friendsData)),
-  );
-},
+                          // 2. Pass that simple list of UIDs directly to the FriendsListPage.
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => FriendsListPage(friends: friendsList),
+                            ),
+                          );
+                        },
 
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: 8),

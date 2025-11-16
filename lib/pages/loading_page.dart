@@ -17,7 +17,7 @@ class _LoadingPageState extends State<LoadingPage> with SingleTickerProviderStat
 
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 2), // speed of movement
+      duration: const Duration(milliseconds: 500), // speed of movement
     )..repeat(reverse: true); // makes it move up and down forever
 
     _animation = Tween<double>(begin: -15, end: 15).animate(

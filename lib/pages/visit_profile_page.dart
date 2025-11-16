@@ -212,6 +212,7 @@ class _VisitProfilePageState extends State<VisitProfilePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Visit Account"),
+        centerTitle: true,
         backgroundColor: Colors.purple,
         foregroundColor: Colors.white,
       ),
