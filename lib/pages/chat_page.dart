@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 // Media & attachment imports (add your packages later)
-import 'package:image_picker/image_picker.dart';
+import '../services/profile_service.dart';
 import '../services/message_service.dart';
 import 'visit_profile_page.dart'; 
 class ChatPage extends StatefulWidget {
@@ -28,26 +28,29 @@ class _ChatPageState extends State<ChatPage> {
   final MessageService _messageService = MessageService();
   final TextEditingController _controller = TextEditingController();
 
- void _navigateToUserProfile() {
-    // Reconstruct the user map required by VisitProfilePage.
-    // Note: You may not have all user data here (like email).
-    // Pass what you have. If VisitProfilePage needs more, you might need to
-    // fetch it first or pass more data to ChatPage initially.
-    final user = {
-      'uid': widget.receiverId,
-      'name': widget.receiverName,
-      'imageUrl': widget.receiverImageUrl ?? '',
-      // Add other fields with default values if VisitProfilePage requires them
-      'email': '', // Assuming email is not available on this screen
-    };
+ void _navigateToUserProfile() async {
+  final profileService = ProfileSercice(); // your class name
+  final userData = await profileService.getUserData(widget.receiverId);
+
+  if (!mounted) return;
+
+  if (userData != null) {
+    // Add UID manually since it's not always in the Firestore document
+    userData['uid'] = widget.receiverId;
 
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => VisitProfilePage(user: user),
+        builder: (_) => VisitProfilePage(user: userData),
       ),
     );
-  } 
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Failed to load user profile")),
+    );
+  }
+}
+
   void _sendMessage() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;

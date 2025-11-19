@@ -11,7 +11,7 @@ import 'visit_profile_page.dart';
 import '../services/notification_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'loading_page.dart';
-
+import 'discussions_list.dart'; 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -309,88 +309,6 @@ class _HomePageState extends State<HomePage>
     );
   }
 
-  // --- UI Builders ---
-  Widget _buildDiscussionsList() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _messageService.getUserChats(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(child: Text("Error: ${snapshot.error}"));
-        }
-        final chatDocs = snapshot.data?.docs ?? [];
-        if (chatDocs.isEmpty) {
-          return const Center(
-              child: Text("Start a discussion by searching for a friend!"));
-        }
-        return ListView.builder(
-          itemCount: chatDocs.length,
-          itemBuilder: (context, i) {
-            final chat = chatDocs[i].data() as Map<String, dynamic>;
-            final chatId = chatDocs[i].id;
-            final currentUserId = _messageService.getCurrentUserId();
-            final participants = List<String>.from(chat['participants']);
-            final receiverId = participants.firstWhere(
-                (id) => id != currentUserId,
-                orElse: () => currentUserId);
-            return FutureBuilder<DocumentSnapshot>(
-              future: _friendService.getUserDetails(receiverId),
-              builder: (context, userSnapshot) {
-                String name = "Loading...";
-                String? imageUrl;
-                if (userSnapshot.hasData && userSnapshot.data!.exists) {
-                  final userData =
-                      userSnapshot.data!.data() as Map<String, dynamic>;
-                  name = userData['name'] ?? 'Unknown User';
-                  imageUrl = userData['imageUrl'];
-                }
-                return StreamBuilder<QuerySnapshot>(
-                  stream: _messageService.getLastMessage(chatId),
-                  builder: (context, messageSnapshot) {
-                    String subtitle = "No messages yet";
-                    if (messageSnapshot.hasData &&
-                        messageSnapshot.data!.docs.isNotEmpty) {
-                      final lastMessage = messageSnapshot.data!.docs.first
-                          .data() as Map<String, dynamic>;
-                      final String messageContent =
-                          lastMessage["text"] ?? "Message unavailable";
-                      final String? senderId =
-                          lastMessage["senderId"] as String?;
-                      subtitle = (senderId != null && senderId == currentUserId)
-                          ? "You: $messageContent"
-                          : messageContent;
-                    }
-                    return ListTile(
-                      leading: CircleAvatar(
-                        radius: 25,
-                        backgroundColor: Colors.purple.shade700,
-                        backgroundImage: (imageUrl != null && imageUrl.isNotEmpty)
-                            ? NetworkImage(imageUrl)
-                            : null,
-                        child: (imageUrl == null || imageUrl.isEmpty)
-                            ? const Icon(Icons.person,
-                                size: 25, color: Colors.white)
-                            : null,
-                      ),
-                      title: Text(name),
-                      subtitle: Text(subtitle,
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                      onTap: () {
-                        _navigateToChat(chatId, receiverId, name,
-                            receiverImageUrl: imageUrl);
-                      },
-                    );
-                  },
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  }
 
   Widget _buildSearchResults() {
     if (_isSearching) {
@@ -518,6 +436,7 @@ class _HomePageState extends State<HomePage>
                               color: Colors.grey.shade600,
                               onPressed: () {
                                 _searchCtrl.clear();
+                                setState(() {});
                               },
                             )
                           : null,
@@ -576,7 +495,7 @@ class _HomePageState extends State<HomePage>
                 : TabBarView(
                     controller: _tabController,
                     children: [
-                      _buildDiscussionsList(),
+                       const DiscussionsList(),
                       FriendRequestsPage(showAppBar: false),
                     ],
                   ),

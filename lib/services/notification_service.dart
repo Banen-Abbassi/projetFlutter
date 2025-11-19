@@ -1,15 +1,11 @@
 import 'package:flutter/material.dart';
 
 class NotificationService {
-  // Use a GlobalKey to access the ScaffoldMessenger from anywhere in the app.
+
   static final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
       GlobalKey<ScaffoldMessengerState>();
 
-  /// Shows a custom in-app notification using a SnackBar.
-  ///
-  /// [title] is the bolded header of the notification.
-  /// [body] is the main content text.
-  /// [onTap] is an optional callback that runs when the notification is tapped.
+
   static void showInAppNotification(
       {required String title, required String body, VoidCallback? onTap}) {
     // Ensure the key is attached to the widget tree.

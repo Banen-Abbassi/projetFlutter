@@ -9,12 +9,21 @@ class FriendsListPage extends StatelessWidget {
 
   Future<Map<String, dynamic>> _fetchFriendProfile(dynamic friend) async {
     final uid = friend is Map ? friend['uid'] : friend.toString();
-    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-    return doc.data() ?? {
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .get();
+
+    final data = doc.data() as Map<String, dynamic>?;
+
+    return {
       'uid': uid,
-      'name': 'Unknown',
-      'email': '',
-      'imageUrl': '',
+      'name': data?['name'] ?? 'Unknown',
+      'email': data?['email'] ?? '',
+      'imageUrl': data?['imageUrl'] ?? '',
+      'phone': data?['phone'] ?? '',
+      'createdAt': data?['createdAt'],
+      'friends': data?['friends'] ?? [],
     };
   }
 
@@ -29,9 +38,7 @@ class FriendsListPage extends StatelessWidget {
         centerTitle: true,
       ),
       body: friends.isEmpty
-          ? const Center(
-              child: Text("You haven't added any friends yet."),
-            )
+          ? const Center(child: Text("You haven't added any friends yet."))
           : ListView.builder(
               itemCount: friends.length,
               itemBuilder: (context, index) {
@@ -50,7 +57,9 @@ class FriendsListPage extends StatelessWidget {
 
                 return ListTile(
                   leading: CircleAvatar(
-                    backgroundImage: imageUrl.isNotEmpty ? NetworkImage(imageUrl) : null,
+                    backgroundImage: imageUrl.isNotEmpty
+                        ? NetworkImage(imageUrl)
+                        : null,
                     child: imageUrl.isEmpty ? const Icon(Icons.person) : null,
                   ),
                   title: Text(displayName),

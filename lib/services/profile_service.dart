@@ -32,7 +32,6 @@ class ProfileSercice {
     }
   }
 
-  // ✅ ADD THIS NEW METHOD
   // This method gets all friends for a given user and returns their profile data.
   Future<List<Map<String, dynamic>>> getFriendsList(String userId) async {
     try {
