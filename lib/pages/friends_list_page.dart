@@ -1,35 +1,40 @@
-// friends_list_page.dart
+import 'dart:convert'; // <-- CHANGEMENT : Import pour le décodage
+import 'dart:typed_data'; // <-- CHANGEMENT : Import pour les données de l'image
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'visit_profile_page.dart';
 
 class FriendsListPage extends StatelessWidget {
-  final List<dynamic> friends; // This is a list of String UIDs
+  final List<dynamic> friends;
   const FriendsListPage({super.key, required this.friends});
 
-  // --- STEP 1: A dedicated function to fetch a single friend's profile ---
-  // This function will be called by the FutureBuilder for each list item.
-  Future<Map<String, dynamic>> _fetchFriendProfile(String uid) async {
-    // Safety check for empty UIDs
-    if (uid.isEmpty) {
-      return {'name': 'Invalid ID', 'uid': ''}; // Return a map indicating an error
+  // <-- CHANGEMENT : Ajout de la fonction d'aide pour décoder l'image
+  ImageProvider? _getImageProvider(String base64String) {
+    if (base64String.isEmpty) return null;
+    try {
+      final Uint8List imageBytes = base64Decode(base64String);
+      return MemoryImage(imageBytes);
+    } catch (e) {
+      print("Erreur de décodage dans FriendsListPage : $e");
+      return null;
     }
+  }
 
+  Future<Map<String, dynamic>> _fetchFriendProfile(String uid) async {
+    if (uid.isEmpty) {
+      return {'name': 'Invalid ID', 'uid': ''};
+    }
     try {
       final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-
       if (doc.exists && doc.data() != null) {
         final data = doc.data()!;
-        // The critical step: Manually add the UID to the map so VisitProfilePage works.
         data['uid'] = doc.id;
         return data;
       } else {
-        // Handle case where friend UID exists in list but user doc is deleted.
         return {'name': 'User Not Found', 'uid': uid};
       }
     } catch (e) {
       print("Error fetching friend profile for UID: $uid. Error: $e");
-      // Return an error map
       return {'name': 'Error loading', 'uid': uid};
     }
   }
@@ -46,22 +51,15 @@ class FriendsListPage extends StatelessWidget {
         centerTitle: true,
       ),
       body: friends.isEmpty
-          ? const Center(
-              child: Text("You haven't added any friends yet."),
-            )
-          // --- STEP 2: The ListView.builder now uses a FutureBuilder ---
+          ? const Center(child: Text("You haven't added any friends yet."))
           : ListView.builder(
               itemCount: friends.length,
               itemBuilder: (context, index) {
                 final String friendUid = friends[index].toString();
 
-                // Each item in the list is now a FutureBuilder.
                 return FutureBuilder<Map<String, dynamic>>(
-                  // It calls our fetch function for each friend's UID.
                   future: _fetchFriendProfile(friendUid),
                   builder: (context, snapshot) {
-                    
-                    // --- Handle the LOADING state ---
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const ListTile(
                         leading: CircleAvatar(
@@ -72,7 +70,6 @@ class FriendsListPage extends StatelessWidget {
                       );
                     }
 
-                    // --- Handle the ERROR state ---
                     if (snapshot.hasError || !snapshot.hasData || snapshot.data == null || snapshot.data!['uid'] == '') {
                       return ListTile(
                         leading: const CircleAvatar(
@@ -84,24 +81,25 @@ class FriendsListPage extends StatelessWidget {
                       );
                     }
 
-                    // --- Handle the SUCCESS state ---
-                    // Once the data has arrived, we build the final ListTile.
                     final friendData = snapshot.data!;
                     final String displayName = friendData['name'] ?? 'No Name';
                     final String displayEmail = friendData['email'] ?? '';
-                    final String imageUrl = friendData['imageUrl'] ?? '';
+                    // <-- CHANGEMENT : On lit le champ 'imageUrlBase64'
+                    final String imageBase64 = friendData['imageUrlBase64'] ?? '';
+
+                    // <-- CHANGEMENT : On prépare l'image en appelant notre fonction
+                    final imageProvider = _getImageProvider(imageBase64);
 
                     return ListTile(
+                      // <-- CHANGEMENT : Le CircleAvatar utilise maintenant l'imageProvider
                       leading: CircleAvatar(
-                        backgroundImage: imageUrl.isNotEmpty ? NetworkImage(imageUrl) : null,
+                        backgroundImage: imageProvider,
                         backgroundColor: Colors.purple.shade100,
-                        child: imageUrl.isEmpty ? const Icon(Icons.person, color: Colors.purple) : null,
+                        child: imageProvider == null ? const Icon(Icons.person, color: Colors.purple) : null,
                       ),
                       title: Text(displayName),
                       subtitle: displayEmail.isNotEmpty ? Text(displayEmail) : null,
                       onTap: () {
-                        // The onTap is now very simple. All the data is already here.
-                        // We just pass the complete 'friendData' map.
                         Navigator.push(
                           context,
                           MaterialPageRoute(

@@ -1,4 +1,8 @@
+// pages/home_page.dart
+
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../auth/auth_service.dart';
@@ -11,7 +15,9 @@ import 'visit_profile_page.dart';
 import '../services/notification_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'loading_page.dart';
-import 'discussions_list.dart'; 
+import 'discussions_list.dart';
+import '../services/presence_service.dart';
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -25,19 +31,15 @@ class _HomePageState extends State<HomePage>
   final MessageService _messageService = MessageService();
   final TextEditingController _searchCtrl = TextEditingController();
   final AuthService _authService = AuthService();
+  final PresenceService _presenceService = PresenceService();
 
   late TabController _tabController;
-
   List<Map<String, dynamic>> _searchResults = [];
   bool _isSearching = false;
-
   Timer? _debounce;
   int _requestCount = 0;
   StreamSubscription<int>? _requestCountSubscription;
-
-  // Central listener for all pop-up notifications
   StreamSubscription<QuerySnapshot>? _notificationSubscription;
-  // Listener for the badge count on the bell icon
   int _unreadNotificationCount = 0;
   StreamSubscription<int>? _unreadNotificationSubscription;
 
@@ -49,6 +51,7 @@ class _HomePageState extends State<HomePage>
     _listenToFriendRequests();
     _listenForNewNotifications();
     _listenToUnreadNotifications();
+    _presenceService.setupPresence();
   }
 
   @override
@@ -63,16 +66,24 @@ class _HomePageState extends State<HomePage>
     super.dispose();
   }
 
-  // --- Notification Listeners ---
+  ImageProvider? _getImageProvider(String base64String) {
+    if (base64String.isEmpty) return null;
+    try {
+      final Uint8List imageBytes = base64Decode(base64String);
+      return MemoryImage(imageBytes);
+    } catch (e) {
+      print("Erreur de décodage de l'image Base64 sur HomePage : $e");
+      return null;
+    }
+  }
 
-  /// Central listener for all real-time pop-up notifications.
   void _listenForNewNotifications() {
-    _notificationSubscription = _friendService
-        .getNewNotificationsStream()
-        .listen((snapshot) async {
+    _notificationSubscription =
+        _friendService.getNewNotificationsStream().listen((snapshot) async {
       for (var change in snapshot.docChanges) {
         if (change.type == DocumentChangeType.added) {
-          final notificationData = change.doc.data() as Map<String, dynamic>?;
+          final notificationData =
+              change.doc.data() as Map<String, dynamic>?;
           if (notificationData == null) continue;
 
           final String type = notificationData['type'] ?? '';
@@ -81,16 +92,20 @@ class _HomePageState extends State<HomePage>
             final fromUid = notificationData['senderId'];
             if (fromUid != null) {
               final userDoc = await _friendService.getUserDetails(fromUid);
-              final senderName = userDoc.data() != null ? (userDoc.data()! as Map)['name'] ?? 'Someone' : 'Someone';
-              
+              final senderName = userDoc.data() != null
+                  ? (userDoc.data()! as Map)['name'] ?? 'Someone'
+                  : 'Someone';
+
               NotificationService.showInAppNotification(
                 title: "New Friend Request",
                 body: "$senderName sent you a friend request.",
-                onTap: () => _navigateToWithLoadingIndicator(FriendRequestsPage()),
+                onTap: () =>
+                    _navigateToWithLoadingIndicator(FriendRequestsPage()),
               );
             }
           } else if (type == 'new_message') {
-            final String senderName = notificationData['title'] ?? 'New Message';
+            final String senderName =
+                notificationData['title'] ?? 'New Message';
             final String messageBody = notificationData['body'] ?? '...';
             final String chatId = notificationData['chatId'] ?? '';
             final String senderId = notificationData['senderId'] ?? '';
@@ -119,7 +134,6 @@ class _HomePageState extends State<HomePage>
     });
   }
 
-  // --- Other Handlers & Methods ---
   void _navigateToWithLoadingIndicator(Widget page) async {
     if (!mounted) return;
     Navigator.push(
@@ -193,7 +207,10 @@ class _HomePageState extends State<HomePage>
               ),
               ListTile(
                 leading: const Icon(Icons.logout, color: Colors.red),
-                title: const Text("Sign Out", style: TextStyle(color: Colors.red)),
+                title: const Text(
+                  "Sign Out",
+                  style: TextStyle(color: Colors.red),
+                ),
                 onTap: () async {
                   Navigator.pop(context);
                   await _authService.signOut();
@@ -252,8 +269,10 @@ class _HomePageState extends State<HomePage>
                   return const Center(
                     child: Padding(
                       padding: EdgeInsets.all(20.0),
-                      child: Text("You have no notifications.",
-                          style: TextStyle(fontSize: 16)),
+                      child: Text(
+                        "You have no notifications.",
+                        style: TextStyle(fontSize: 16),
+                      ),
                     ),
                   );
                 }
@@ -264,8 +283,10 @@ class _HomePageState extends State<HomePage>
                     children: [
                       Padding(
                         padding: const EdgeInsets.all(16.0),
-                        child: Text("Notifications",
-                            style: Theme.of(context).textTheme.titleLarge),
+                        child: Text(
+                          "Notifications",
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
                       ),
                       const Divider(height: 1),
                       Expanded(
@@ -307,8 +328,7 @@ class _HomePageState extends State<HomePage>
         );
       },
     );
-  }
-
+  } // <-- L'ERREUR DE SYNTAXE A ÉTÉ CORRIGÉE ICI. La méthode se termine correctement.
 
   Widget _buildSearchResults() {
     if (_isSearching) {
@@ -320,15 +340,14 @@ class _HomePageState extends State<HomePage>
         itemCount: _searchResults.length,
         itemBuilder: (context, i) {
           final user = _searchResults[i];
+          final String imageBase64 = user['imageUrlBase64'] ?? '';
+          final imageProvider = _getImageProvider(imageBase64);
+
           return ListTile(
             leading: CircleAvatar(
               backgroundColor: Colors.purple.shade300,
-              backgroundImage: user['imageUrl'] != null && user['imageUrl'] != ''
-                  ? NetworkImage(user['imageUrl'])
-                  : null,
-              child: user['imageUrl'] == null || user['imageUrl'] == ''
-                  ? const Icon(Icons.person)
-                  : null,
+              backgroundImage: imageProvider,
+              child: imageProvider == null ? const Icon(Icons.person) : null,
             ),
             title: Text(user['name'] ?? 'User'),
             subtitle: Text(user['email'] ?? ''),
@@ -360,13 +379,32 @@ class _HomePageState extends State<HomePage>
               children: [
                 Row(
                   children: [
-                    GestureDetector(
-                      onTap: _openProfileMenu,
-                      child: const CircleAvatar(
-                        radius: 20,
-                        backgroundColor: Colors.white,
-                        child: Icon(Icons.person, color: Colors.purple),
-                      ),
+                    StreamBuilder<DocumentSnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(FirebaseAuth.instance.currentUser!.uid)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        ImageProvider? imageProvider;
+                        if (snapshot.hasData && snapshot.data!.exists) {
+                          final data =
+                              snapshot.data!.data() as Map<String, dynamic>;
+                          final imageBase64 = data['imageUrlBase64'] ?? '';
+                          imageProvider = _getImageProvider(imageBase64);
+                        }
+                        return GestureDetector(
+                          onTap: _openProfileMenu,
+                          child: CircleAvatar(
+                            radius: 20,
+                            backgroundColor: Colors.white,
+                            backgroundImage: imageProvider,
+                            child: imageProvider == null
+                                ? const Icon(Icons.person,
+                                    color: Colors.purple)
+                                : null,
+                          ),
+                        );
+                      },
                     ),
                     const Expanded(
                       child: Center(
@@ -427,7 +465,6 @@ class _HomePageState extends State<HomePage>
                     style: const TextStyle(color: Colors.black87),
                     decoration: InputDecoration(
                       border: InputBorder.none,
-                      // contentPadding: const EdgeInsets.only(top: 10),
                       prefixIcon:
                           Icon(Icons.search, color: Colors.grey.shade600),
                       suffixIcon: _searchCtrl.text.isNotEmpty
@@ -495,7 +532,7 @@ class _HomePageState extends State<HomePage>
                 : TabBarView(
                     controller: _tabController,
                     children: [
-                       const DiscussionsList(),
+                      const DiscussionsList(),
                       FriendRequestsPage(showAppBar: false),
                     ],
                   ),
