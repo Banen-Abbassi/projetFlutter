@@ -1,7 +1,10 @@
+import 'dart:convert'; // <-- CHANGEMENT : Import pour le décodage
+import 'dart:typed_data'; // <-- CHANGEMENT : Import pour les données de l'image
 import 'package:flutter/material.dart';
 import '../services/friend_service.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:chat_app/pages/chat_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:chat_app/pages/chat_page.dart'; // Make sure this path is correct
 
 class VisitProfilePage extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -22,16 +25,24 @@ class _VisitProfilePageState extends State<VisitProfilePage> {
     _loadStatus();
   }
 
+  // <-- CHANGEMENT : Ajout de la fonction d'aide pour décoder l'image
+  ImageProvider? _getImageProvider(String base64String) {
+    if (base64String.isEmpty) return null;
+    try {
+      final Uint8List imageBytes = base64Decode(base64String);
+      return MemoryImage(imageBytes);
+    } catch (e) {
+      print("Erreur de décodage dans VisitProfilePage : $e");
+      return null;
+    }
+  }
+
   void _handleMessage() async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Opening chat...')),
+    // ... (cette fonction ne change pas, mais attention, ChatPage devra aussi être mise à jour)
+    final chatId = await _friendService.messageService.getOrCreateChat(
+      widget.user['uid'],
     );
-
-    final chatId = await _friendService.messageService.getOrCreateChat(widget.user['uid']);
-
     if (!mounted) return;
-
-    // Use pushReplacement if you came from a loading screen, or push for normal navigation
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -39,16 +50,17 @@ class _VisitProfilePageState extends State<VisitProfilePage> {
           chatId: chatId,
           receiverId: widget.user['uid'],
           receiverName: widget.user['name'] ?? 'Chat',
-          receiverImageUrl: widget.user['imageUrl'], // Pass the image URL
+          // On passe la chaîne Base64 à la page de chat
+          receiverImageUrl: widget.user['imageUrlBase64'],
         ),
       ),
     );
-
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
   }
 
   void _loadStatus() async {
-    final result = await _friendService.checkFriendStatusWithId(widget.user['uid']);
+    final result = await _friendService.checkFriendStatusWithId(
+      widget.user['uid'],
+    );
     if (mounted) {
       setState(() {
         _status = result['status'] as String;
@@ -57,23 +69,19 @@ class _VisitProfilePageState extends State<VisitProfilePage> {
     }
   }
 
-  // --- Handlers ---
-
   void _handleSendRequest() async {
     if (_status == 'none') {
       await _friendService.sendRequest(widget.user['uid']);
-      _loadStatus(); // Reload status to get the new 'sent' state and requestId
+      _loadStatus();
     }
   }
 
-  // --- 1. THIS FUNCTION IS NOW UNCOMMENTED ---
-  // For "Cancel Request" (status: sent)
   void _handleDeleteRequest() async {
     if (_status == 'sent' && _requestId != null) {
       await _friendService.deleteRequest(_requestId!);
       if (mounted) {
         setState(() {
-          _status = 'none'; // Revert status back to 'none'
+          _status = 'none';
           _requestId = null;
         });
       }
@@ -93,7 +101,9 @@ class _VisitProfilePageState extends State<VisitProfilePage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("Unfriend"),
-        content: Text("Are you sure you want to unfriend ${widget.user['name']}?"),
+        content: Text(
+          "Are you sure you want to unfriend ${widget.user['name']}?",
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
@@ -117,22 +127,18 @@ class _VisitProfilePageState extends State<VisitProfilePage> {
     }
   }
 
-  // --- UI Builders ---
-
   Widget _buildActionButtons() {
     Widget friendButton;
 
     switch (_status) {
-      // --- 2. THIS 'sent' CASE IS NOW UPDATED ---
       case 'sent':
         friendButton = OutlinedButton(
-          onPressed: _handleDeleteRequest, // Connects to the delete function
+          onPressed: _handleDeleteRequest,
           style: OutlinedButton.styleFrom(
             foregroundColor: Colors.red,
             side: const BorderSide(color: Colors.red),
-            alignment: Alignment.center,
           ),
-  child: const Center(child: Text("Cancel Request")),
+          child: const Text("Cancel Request"),
         );
         break;
       case 'received':
@@ -168,14 +174,9 @@ class _VisitProfilePageState extends State<VisitProfilePage> {
           ),
         ),
         const SizedBox(width: 8),
-        Expanded(
-          child: friendButton,
-        ),
+        Expanded(child: friendButton),
         const SizedBox(width: 8),
-        OutlinedButton(
-          onPressed: () {},
-          child: const Text("More"),
-        ),
+        OutlinedButton(onPressed: () {}, child: const Text("More")),
       ],
     );
   }
@@ -190,12 +191,34 @@ class _VisitProfilePageState extends State<VisitProfilePage> {
         children: [
           Icon(icon, color: Colors.purple),
           const SizedBox(width: 15),
-          Text(
-            display,
-            style: const TextStyle(fontSize: 16),
-          ),
+          Text(display, style: const TextStyle(fontSize: 16)),
         ],
       ),
+    );
+  }
+
+  Widget _buildOnlineStatus() {
+    return StreamBuilder(
+      stream: FirebaseDatabase.instance
+          .ref('status/${widget.user['uid']}')
+          .onValue,
+      builder: (context, snapshot) {
+        bool isOnline = false;
+        if (snapshot.hasData &&
+            !snapshot.hasError &&
+            snapshot.data!.snapshot.value != null) {
+          final data = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+          isOnline = data['state'] == 'online';
+        }
+
+        return Text(
+          isOnline ? 'Online now' : 'Offline',
+          style: TextStyle(
+            fontSize: 14,
+            color: isOnline ? Colors.green : Colors.grey,
+          ),
+        );
+      },
     );
   }
 
@@ -207,11 +230,15 @@ class _VisitProfilePageState extends State<VisitProfilePage> {
     final joined = user['createdAt'] != null
         ? 'Joined: ${(user['createdAt'] as Timestamp).toDate().toString().substring(0, 10)}'
         : 'Joined: N/A';
-    final isOnline = true;
+
+    // <-- CHANGEMENT : On prépare l'image en appelant notre nouvelle fonction
+    final String imageBase64 = user['imageUrlBase64'] ?? '';
+    final imageProvider = _getImageProvider(imageBase64);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text("Visit Account"),
+        centerTitle: true,
         backgroundColor: Colors.purple,
         foregroundColor: Colors.white,
       ),
@@ -224,15 +251,18 @@ class _VisitProfilePageState extends State<VisitProfilePage> {
               Center(
                 child: Column(
                   children: [
+                    // <-- CHANGEMENT : Le CircleAvatar est modifié pour utiliser l'image décodée
                     CircleAvatar(
                       radius: 60,
-                      backgroundImage: user['imageUrl'] != null && user['imageUrl'] != ''
-                          ? NetworkImage(user['imageUrl'])
-                          : null,
-                      child: user['imageUrl'] == null || user['imageUrl'] == ''
-                          ? const Icon(Icons.person, size: 60, color: Colors.white)
-                          : null,
+                      backgroundImage: imageProvider,
                       backgroundColor: Colors.purple.shade200,
+                      child: imageProvider == null
+                          ? const Icon(
+                              Icons.person,
+                              size: 60,
+                              color: Colors.white,
+                            )
+                          : null,
                     ),
                     const SizedBox(height: 10),
                   ],
@@ -242,7 +272,10 @@ class _VisitProfilePageState extends State<VisitProfilePage> {
               Center(
                 child: Text(
                   user['name'] ?? 'User Name',
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               Center(
@@ -251,12 +284,7 @@ class _VisitProfilePageState extends State<VisitProfilePage> {
                   style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
                 ),
               ),
-              Center(
-                child: Text(
-                  isOnline ? 'Online now' : 'Offline',
-                  style: TextStyle(fontSize: 14, color: isOnline ? Colors.green : Colors.grey),
-                ),
-              ),
+              Center(child: _buildOnlineStatus()),
               const SizedBox(height: 20),
               _buildActionButtons(),
               const SizedBox(height: 30),
@@ -268,7 +296,10 @@ class _VisitProfilePageState extends State<VisitProfilePage> {
                 onPressed: () {},
                 child: const Text(
                   "Block User",
-                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               TextButton(

@@ -1,72 +1,40 @@
+// Path: services/profile_service.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+// Attention : Le nom de la classe est "ProfileSercice" pour correspondre à votre code existant.
+// La bonne orthographe serait "ProfileService".
 class ProfileSercice {
-  final _firestore = FirebaseFirestore.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // This method remains the same. It's used to get a single user's profile.
-  Future<Map<String, dynamic>?> getUserData(String userId) async {
+  /// Récupère les données d'un utilisateur depuis Firestore en utilisant son UID.
+  Future<Map<String, dynamic>?> getUserData(String uid) async {
     try {
-      DocumentSnapshot doc =
-          await _firestore.collection('users').doc(userId).get();
-
-      if (doc.exists && doc.data() != null) {
-        return doc.data() as Map<String, dynamic>;
-      } else {
-        print("User document does not exist!");
-        return null;
-      }
+      DocumentSnapshot doc = await _firestore.collection('users').doc(uid).get();
+      return doc.data() as Map<String, dynamic>?;
     } catch (e) {
-      print("Failed to fetch user data: $e");
+      print("Erreur lors de la récupération des données utilisateur : $e");
       return null;
     }
   }
 
-  // This method also remains the same.
-  Future<void> updateUserData(Map<String, dynamic> newData) async {
-    try {
-      final uid = FirebaseAuth.instance.currentUser!.uid;
-      await _firestore.collection('users').doc(uid).update(newData);
-    } catch (e) {
-      throw Exception("Failed to update user data: $e");
+  /// Met à jour les données de l'utilisateur actuellement connecté.
+  /// [data] est une map contenant les champs à mettre à jour.
+  Future<void> updateUserData(Map<String, dynamic> data) async {
+    final String? uid = _auth.currentUser?.uid;
+
+    if (uid == null) {
+      print("Aucun utilisateur connecté pour la mise à jour.");
+      return;
     }
-  }
 
-  // This method gets all friends for a given user and returns their profile data.
-  Future<List<Map<String, dynamic>>> getFriendsList(String userId) async {
     try {
-      // 1. Get the snapshot of the 'friends' subcollection for the user.
-      QuerySnapshot friendsSnapshot = await _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('friends')
-          .get();
-
-      // If the user has no friends, return an empty list immediately.
-      if (friendsSnapshot.docs.isEmpty) {
-        return [];
-      }
-
-      // 2. Extract the UIDs of the friends from the document IDs.
-      List<String> friendUids =
-          friendsSnapshot.docs.map((doc) => doc.id).toList();
-
-      List<Map<String, dynamic>> friendsData = [];
-
-      // 3. Loop through each friend's UID to fetch their user data.
-      for (String friendUid in friendUids) {
-        // We reuse the getUserData method here.
-        Map<String, dynamic>? friendData = await getUserData(friendUid);
-        if (friendData != null) {
-          friendsData.add(friendData);
-        }
-      }
-
-      return friendsData;
+      // Utilise .update() pour ne modifier que les champs fournis dans la map [data].
+      await _firestore.collection('users').doc(uid).update(data);
     } catch (e) {
-      print("Failed to fetch friends list: $e");
-      // Return an empty list if an error occurs.
-      return [];
+      print("Erreur lors de la mise à jour des données utilisateur : $e");
     }
   }
 }

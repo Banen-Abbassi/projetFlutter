@@ -30,13 +30,30 @@ class MessageService {
 
     return newChat.id;
   }
-  // Needed by _buildDiscussionsList
-String getCurrentUserId() {
-  return _auth.currentUser!.uid;
-}
+  
+  String getCurrentUserId() {
+    return _auth.currentUser!.uid;
+  }
+
+  Future<QuerySnapshot> getUserChatsOnce() async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+
+    return FirebaseFirestore.instance
+        .collection('chats')
+        .where('participants', arrayContains: uid)
+        .get();
+  }
 
   /// Sends a message, creates a notification, and updates the chat's timestamp.
-  Future<void> sendMessage(String chatId, String receiverId, String text) async {
+  /// MODIFIED to handle text, images, and files via Base64.
+  Future<void> sendMessage(
+    String chatId, 
+    String receiverId, 
+    String text, {
+    String? base64Data, 
+    String? type, // 'text', 'image', 'file'
+    String? fileName,
+  }) async {
     final String currentUserId = _auth.currentUser!.uid;
     final Timestamp timestamp = Timestamp.now();
 
@@ -52,14 +69,26 @@ String getCurrentUserId() {
         .collection('messages')
         .doc();
 
-    batch.set(messageRef, {
+    // Build the message data
+    final Map<String, dynamic> messageData = {
       'text': text,
       'senderId': currentUserId,
       'receiverId': receiverId,
       'timestamp': timestamp,
-    });
+      'type': type ?? 'text', // Default to 'text' if not provided
+    };
 
-    // Operation 2: Update the timestamp (this doesn't require an index)
+    // Add Base64 data if it exists
+    if (base64Data != null) {
+      messageData['base64Data'] = base64Data;
+    }
+    if (fileName != null) {
+      messageData['fileName'] = fileName;
+    }
+
+    batch.set(messageRef, messageData);
+
+    // Operation 2: Update the chat's last message timestamp
     final chatRef = _firestore.collection('chats').doc(chatId);
     batch.update(chatRef, {
       'lastMessageTimestamp': timestamp,
@@ -72,10 +101,20 @@ String getCurrentUserId() {
           .doc(receiverId)
           .collection('notifications')
           .doc();
+      
+      // Determine notification body based on message type
+      String notificationBody;
+      if (type == 'image') {
+        notificationBody = 'Sent you an image';
+      } else if (type == 'file') {
+        notificationBody = 'Sent you a file';
+      } else {
+        notificationBody = text;
+      }
 
       batch.set(notificationRef, {
         'title': senderName,
-        'body': text,
+        'body': notificationBody,
         'type': 'new_message',
         'senderId': currentUserId,
         'chatId': chatId,
@@ -105,7 +144,7 @@ String getCurrentUserId() {
         .where('participants', arrayContains: uid)
         .snapshots();
   }
-   // ✅ New method: get last message of a chat
+  
   Stream<QuerySnapshot> getLastMessage(String chatId) {
     return _firestore
         .collection('chats')

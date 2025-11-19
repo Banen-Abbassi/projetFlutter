@@ -49,6 +49,7 @@ class _FriendRequestsPageState extends State<FriendRequestsPage> {
           ? AppBar(title: const Text("Friend Requests"),       
           backgroundColor: Theme.of(context).colorScheme.primary,
           foregroundColor: Colors.white,
+          centerTitle: true,
 )
           : null, // If showAppBar is false, this will be null, hiding it.
           

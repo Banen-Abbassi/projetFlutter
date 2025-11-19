@@ -5,7 +5,6 @@ class NotificationService {
   static final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
       GlobalKey<ScaffoldMessengerState>();
 
-
   static void showInAppNotification(
       {required String title, required String body, VoidCallback? onTap}) {
     // Ensure the key is attached to the widget tree.

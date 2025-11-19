@@ -1,4 +1,7 @@
-// ProfilePage.dart
+// Path: pages/profile_page.dart
+
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -9,7 +12,7 @@ import 'package:provider/provider.dart';
 import '../themes/theme_service.dart';
 import 'privacy_settings_page.dart';
 import '../components/logout_button.dart';
-import 'friends_list_page.dart'; // make sure path is correct
+import 'friends_list_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -29,6 +32,7 @@ class _ProfilePageState extends State<ProfilePage> {
     _loadUser();
   }
 
+  /// Recharge les données de l'utilisateur depuis Firestore.
   void _reloadUser() => _loadUser();
 
   Future<void> _loadUser() async {
@@ -37,8 +41,8 @@ class _ProfilePageState extends State<ProfilePage> {
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final data = await profileService.getUserData(uid);
 
-    // Ensure 'friends' is a List and compute friendsCount from it.
     final List<dynamic> friendsList = List<dynamic>.from(data?['friends'] ?? []);
+    // Prépare les données locales avec des valeurs par défaut
     final processedData = (data ?? <String, dynamic>{})
       ..addAll({
         "uid": uid,
@@ -46,7 +50,7 @@ class _ProfilePageState extends State<ProfilePage> {
         "email": (data?['email'] ?? FirebaseAuth.instance.currentUser?.email ?? ""),
         "bio": (data?['bio'] ?? "Set your bio!"),
         "phone": (data?['phone'] ?? "+216 XX XXX XXX"),
-        "imageUrl": (data?['imageUrl'] ?? ""),
+        "imageUrlBase64": (data?['imageUrlBase64'] ?? ""),
         "friends": friendsList,
         "friendsCount": friendsList.length.toString(),
         "createdAt": (data?['createdAt'] ?? Timestamp.now()),
@@ -60,22 +64,37 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  /// Fonction utilitaire pour obtenir une chaîne de caractères de manière sûre.
   String safeString(Map<String, dynamic>? data, String key) {
     if (data == null) return "";
-    final value = data[key];
-    if (value == null) return "";
-    if (value is String) return value;
-    return value.toString();
+    return data[key]?.toString() ?? "";
   }
 
+  /// Décode la chaîne Base64 et retourne un ImageProvider pour l'affichage.
+  ImageProvider? _getImageProvider(String base64String) {
+    if (base64String.isEmpty) return null;
+    try {
+      final Uint8List imageBytes = base64Decode(base64String);
+      return MemoryImage(imageBytes);
+    } catch (e) {
+      print("Erreur de décodage de l'image Base64 : $e");
+      return null;
+    }
+  }
+
+  /// Formate un Timestamp Firestore en une date lisible.
   String _formatTimestamp(Map<String, dynamic>? data, String key) {
     if (data == null) return "";
     final value = data[key];
     if (value == null) return "";
     DateTime dt;
-    if (value is Timestamp) dt = value.toDate();
-    else if (value is DateTime) dt = value;
-    else return value.toString();
+    if (value is Timestamp) {
+      dt = value.toDate();
+    } else if (value is DateTime) {
+      dt = value;
+    } else {
+      return value.toString();
+    }
     return DateFormat('dd MMM yyyy').format(dt);
   }
 
@@ -90,6 +109,8 @@ class _ProfilePageState extends State<ProfilePage> {
         body: const Center(child: CircularProgressIndicator()),
       );
     }
+
+    final imageProvider = _getImageProvider(safeString(userData, "imageUrlBase64"));
 
     Widget statBox(String value, String label) {
       return Column(
@@ -127,11 +148,9 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                   child: CircleAvatar(
                     radius: 55,
-                    backgroundImage: safeString(userData, "imageUrl").isNotEmpty
-                        ? NetworkImage(safeString(userData, "imageUrl"))
-                        : null,
+                    backgroundImage: imageProvider,
                     backgroundColor: primaryColor.withOpacity(0.1),
-                    child: safeString(userData, "imageUrl").isEmpty
+                    child: imageProvider == null
                         ? Icon(Icons.person, size: 60, color: primaryColor)
                         : null,
                   ),
@@ -163,10 +182,7 @@ class _ProfilePageState extends State<ProfilePage> {
               ],
             ),
           ),
-
           const SizedBox(height: 20),
-
-          // --- Stats Card with clickable Friends ---
           Card(
             elevation: 2,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -175,40 +191,25 @@ class _ProfilePageState extends State<ProfilePage> {
               child: IntrinsicHeight(
                 child: Row(
                   children: [
-                    // Friends Box clickable
                     Expanded(
                       child: InkWell(
                         borderRadius: BorderRadius.circular(8),
-                        onTap: () async {
-  final rawFriends = userData?['friends'] ?? [];
-
-  // Convert friend UIDs to full user data
-  List<Map<String, dynamic>> friendsData = [];
-  for (var uid in rawFriends) {
-    if (uid is String) {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-      if (doc.exists) {
-        friendsData.add(doc.data()!); // Full user map
-      }
-    }
-  }
-
-  // Navigate with proper data
-  Navigator.push(
-    context,
-    MaterialPageRoute(builder: (_) => FriendsListPage(friends: friendsData)),
-  );
-},
-
+                        onTap: () {
+                          final List<dynamic> friendsList = userData?['friends'] ?? [];
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => FriendsListPage(friends: friendsList),
+                            ),
+                          );
+                        },
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: 8),
                           child: statBox(safeString(userData, "friendsCount"), "Friends"),
                         ),
                       ),
                     ),
-
                     const VerticalDivider(width: 1, color: Colors.grey),
-
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -220,12 +221,9 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ),
           ),
-
           const SizedBox(height: 20),
-
           Text("Account Information", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: primaryColor)),
           const SizedBox(height: 10),
-
           ListTile(
             leading: Icon(Icons.phone, color: primaryColor),
             title: Text(safeString(userData, "phone").isEmpty ? "No phone provided" : safeString(userData, "phone")),
@@ -235,17 +233,13 @@ class _ProfilePageState extends State<ProfilePage> {
               _reloadUser();
             },
           ),
-
           ListTile(
             leading: Icon(Icons.email, color: primaryColor),
             title: Text(safeString(userData, "email")),
           ),
-
           const SizedBox(height: 20),
-
           Text("App Settings", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: primaryColor)),
           const SizedBox(height: 10),
-
           ListTile(
             leading: Icon(Icons.brightness_6, color: primaryColor),
             title: const Text("Dark Mode"),
@@ -255,7 +249,6 @@ class _ProfilePageState extends State<ProfilePage> {
               activeColor: primaryColor,
             ),
           ),
-
           ListTile(
             leading: Icon(Icons.security, color: primaryColor),
             title: const Text("Privacy Settings"),

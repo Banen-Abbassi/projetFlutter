@@ -39,14 +39,18 @@ dependencies:
   cloud_firestore: ^6.0.3
   firebase_storage: ^13.0.3
   image_picker: ^1.0.7
+  file_picker: ^8.0.3
   intl: ^0.18.1
   provider: ^6.1.5+1
   shared_preferences: ^2.5.3
   firebase_messaging: ^16.0.4
+  firebase_database: ^12.0.4  # The following adds the Cupertino Icons font to your application.
+  url_launcher: ^6.3.2
+  flutter_sound: ^9.2.13
+  permission_handler: ^11.0.1 # For handling microphone permissions
+  path_provider: ^2.1.1 # For finding a temporary directory to store recordings
+  uuid: ^4.2.1 # To generate unique file names
 
-
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
 
 dev_dependencies:
   flutter_test:

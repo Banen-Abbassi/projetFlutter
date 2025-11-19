@@ -1,3 +1,4 @@
+// main.dart
 import 'package:chat_app/auth/auth_gate.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -12,13 +13,14 @@ import 'pages/home_page.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'services/notification_service.dart';
+import 'services/presence_service.dart';
+
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   print("✅ Background message received: ${message.messageId}");
 }
 
-/// ✅ Declare this ABOVE main()
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
@@ -30,17 +32,11 @@ const AndroidNotificationChannel channel = AndroidNotificationChannel(
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  // ✅ Create notification channel BEFORE listening for messages
   await flutterLocalNotificationsPlugin
       .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>()
       ?.createNotificationChannel(channel);
-
-  // ✅ Register background handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   runApp(
@@ -58,16 +54,51 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   bool _isLoading = true;
+  final PresenceService _presenceService = PresenceService();
 
   @override
   void initState() {
     super.initState();
-    // Wait for 1 seconds before navigating to AuthGate
-    Future.delayed(const Duration(seconds: 1), () {
-      setState(() => _isLoading = false);
+    WidgetsBinding.instance.addObserver(this); // Now this is valid
+
+    // Set up presence as soon as the app starts, but only if a user is logged in
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null) {
+        _presenceService.setupPresence();
+      }
     });
+    
+    Future.delayed(const Duration(seconds: 1), () {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this); // This is also valid now
+    super.dispose();
+  }
+
+  // This override is now valid because we added 'with WidgetsBindingObserver'
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    if (state == AppLifecycleState.resumed) {
+      // App is in the foreground
+      _presenceService.setupPresence();
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      // App is in the background or closing
+      _presenceService.goOffline();
+    }
   }
 
   @override
@@ -86,6 +117,9 @@ class _MyAppState extends State<MyApp> {
           : StreamBuilder<User?>(
               stream: FirebaseAuth.instance.authStateChanges(),
               builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const LoadingPage(); // Show loading while checking auth state
+                }
                 return snapshot.hasData ? const HomePage() : const AuthGate();
               },
             ),

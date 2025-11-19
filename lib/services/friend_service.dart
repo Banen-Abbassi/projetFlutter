@@ -58,24 +58,21 @@ class FriendService {
         .collection('users')
         .doc(uid)
         .collection('notifications')
-        .where('read', isEqualTo: false) // The crucial filter
+        .where('read', isEqualTo: false) 
         .snapshots()
-        .map((snapshot) => snapshot.docs.length); // The count is the number of documents
+        .map((snapshot) => snapshot.docs.length);
   }
-/// Returns a real-time stream of NEWLY ADDED notification documents.
   Stream<QuerySnapshot> getNewNotificationsStream() {
     final uid = _auth.currentUser!.uid;
-    // This listens to the notifications subcollection for any changes.
-    // By ordering by timestamp and limiting, we focus on the newest items.
+
     return _firestore
         .collection('users')
         .doc(uid)
         .collection('notifications')
         .orderBy('timestamp', descending: true)
-        .limit(1) // Only fetch the most recent change
+        .limit(1) 
         .snapshots();
   }
-  // --- NEW METHOD: Provides a stream for the pop-up notification ---
   Stream<QuerySnapshot> getReceivedRequestsStream() {
     final uid = _auth.currentUser!.uid;
     return _firestore
@@ -86,7 +83,6 @@ class FriendService {
         .snapshots();
   }
 
-  // (The rest of your FriendService remains the same)
 
   Future<List<Map<String, dynamic>>> searchUsersCaseInsensitive(String query) async {
     final uid = _auth.currentUser!.uid;
@@ -112,7 +108,7 @@ class FriendService {
     return FirebaseFirestore.instance
         .collection('users')
         .doc(uid)
-        .collection('requests') // Note: This seems to point to a different collection than your sendRequest. Check your Firestore structure.
+        .collection('requests') 
         .where('status', isEqualTo: 'received')
         .snapshots()
         .map((snapshot) => snapshot.docs.length);
