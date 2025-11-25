@@ -1,0 +1,23 @@
+[1mdiff --git a/lib/main.dart b/lib/main.dart[m
+[1mindex 26c8f79..3c70197 100644[m
+[1m--- a/lib/main.dart[m
+[1m+++ b/lib/main.dart[m
+[36m@@ -1,4 +1,5 @@[m
+ import 'package:chat_app/auth/auth_gate.dart';[m
+[32m+[m[32mimport 'package:firebase_auth/firebase_auth.dart';[m
+ import 'package:flutter/material.dart';[m
+ import 'package:firebase_core/firebase_core.dart';[m
+ import 'firebase_options.dart';[m
+[36m@@ -6,9 +7,9 @@[m [mimport 'themes/light_modes.dart'; // optional, if you have a theme[m
+ [m
+ void main() async {[m
+   WidgetsFlutterBinding.ensureInitialized();[m
+[31m-  await Firebase.initializeApp([m
+[31m-    options: DefaultFirebaseOptions.currentPlatform,[m
+[31m-  );[m
+[32m+[m[32m  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);[m
+[32m+[m[32m  await FirebaseAuth.instance.signOut();[m
+[32m+[m
+   runApp(const MyApp());[m
+ }[m
+ [m
