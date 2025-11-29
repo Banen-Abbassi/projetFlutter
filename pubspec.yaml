@@ -51,7 +51,7 @@ dependencies:
   path_provider: ^2.1.1 # For finding a temporary directory to store recordings
   uuid: ^4.2.1 # To generate unique file names
   flutter_dotenv: ^5.0.2
-  agora_rtc_engine: ^6.2.0
+  flutter_webrtc: ^1.2.1
 
 dev_dependencies:
   flutter_test:

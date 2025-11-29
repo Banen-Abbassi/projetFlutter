@@ -4,14 +4,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:chat_app/services/ai_service.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../auth/auth_service.dart';
-import '../services/call_service.dart';
+import '../services/call_data.dart';
+import '../services/call_manager.dart';
 import '../services/friend_service.dart';
 import '../services/message_service.dart';
-// import 'call_page.dart'; // No longer needed if call handling is removed from home
+import 'call_page.dart';
+import 'incoming_call_screen.dart';
 import 'profile_page.dart';
 import 'friend_requests_page.dart';
 import 'chat_page.dart';
@@ -38,7 +39,6 @@ class _HomePageState extends State<HomePage>
   final TextEditingController _searchCtrl = TextEditingController();
   final AuthService _authService = AuthService();
   final PresenceService _presenceService = PresenceService();
-  // final CallService _callService = CallService(); // CallService is not used in HomePage anymore
 
   late TabController _tabController;
   List<Map<String, dynamic>> _searchResults = [];
@@ -50,41 +50,92 @@ class _HomePageState extends State<HomePage>
   int _unreadNotificationCount = 0;
   StreamSubscription<int>? _unreadNotificationSubscription;
 
+  final CallManager _callManager = CallManager();
+late StreamSubscription<CallData> _incomingCallSubscription;
+
   @override
   void initState() {
     super.initState();
-    setupFCM();
-    ai =
-        AIService(); // Initialisation après le chargement de .env dans main.dart
+    ai = AIService();
     _tabController = TabController(length: 2, vsync: this);
     _searchCtrl.addListener(_onSearchChanged);
     _listenToFriendRequests();
     _listenForNewNotifications();
     _listenToUnreadNotifications();
     _presenceService.setupPresence();
-    // ⚠️ _listenForIncomingCalls() is REMOVED as it relies on a non-existent global stream
+    _initializeCallManager();
   }
 
-  // ⚠️ The following methods for listening to and handling incoming calls are REMOVED:
-  // void _listenForIncomingCalls() { ... }
-  // void _showIncomingCallOverlay({required String chatId, ...}) { ... }
+  void _initializeCallManager() {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId != null) {
+      _callManager.initialize(currentUserId);
+      _listenToIncomingCalls();
+    }
+  }
 
-  void setupFCM() async {
-    FirebaseMessaging messaging = FirebaseMessaging.instance;
 
-    // Demander permission (iOS / Android 13+)
-    NotificationSettings settings = await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
+
+  void _listenToIncomingCalls() {
+    _incomingCallSubscription = _callManager.listenForIncomingCalls().listen((callData) {
+      if (!mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => IncomingCallScreen(
+            callData: callData,
+            currentUserId: _callManager.currentUserId!,
+          ),
+        ),
+      );
+    });
+  }
+
+void _startCall(String receiverId, String receiverName) async {
+  final currentUserId = _callManager.currentUserId;
+  if (currentUserId == null) return;
+
+  final result = await _callManager.startCall(
+    callerId: currentUserId,
+    callerName: 'Your Name',
+    receiverId: receiverId,
+    receiverName: receiverName,
+    callType: CallType.voice,
+  );
+
+  if (!mounted) return;
+
+  if (result.success && result.callId != null) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          callData: CallData(
+            callId: result.callId!,
+            callerId: currentUserId,
+            callerName: 'Your Name',
+            receiverId: receiverId,
+            receiverName: receiverName,
+            status: CallStatus.ringing,
+            callType: CallType.voice,
+            startedAt: DateTime.now(),
+
+          ),
+          isIncoming: false,
+          currentUserId: currentUserId,
+        ),
+      ),
     );
-    print('Permission status: ${settings.authorizationStatus}');
-
-    // Récupérer le token FCM du device
-    String? token = await messaging.getToken();
-    print('FCM token: $token');
-    // sauvegarde token en base (Firestore) si tu veux envoyer plus tard depuis server
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Failed to start call: ${result.errorMessage}')),
+    );
   }
+}
+
+
+
 
   @override
   void dispose() {
@@ -95,6 +146,9 @@ class _HomePageState extends State<HomePage>
     _requestCountSubscription?.cancel();
     _notificationSubscription?.cancel();
     _unreadNotificationSubscription?.cancel();
+    _incomingCallSubscription?.cancel();
+    _callManager.dispose();
+
     super.dispose();
   }
 
@@ -278,6 +332,29 @@ class _HomePageState extends State<HomePage>
     );
   }
 
+  // --- NEW FUNCTION: Deletes all notifications from Firestore ---
+  Future<void> _clearAllNotifications() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+
+    final collection = FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('notifications');
+
+    final snapshots = await collection.get();
+
+    if (snapshots.docs.isEmpty) return;
+
+    // Use a batch to delete all at once (more efficient)
+    final batch = FirebaseFirestore.instance.batch();
+    for (var doc in snapshots.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+  }
+
+  // --- UPDATED PANEL: Includes "Clear All" button in the header ---
   void _showNotificationsPanel() {
     final userId = FirebaseAuth.instance.currentUser?.uid;
     if (userId == null) return;
@@ -304,30 +381,69 @@ class _HomePageState extends State<HomePage>
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(20.0),
-                      child: Text(
-                        "You have no notifications.",
-                        style: TextStyle(fontSize: 16),
-                      ),
+
+                final notifications = snapshot.data?.docs ?? [];
+
+                // If empty, show simplified empty view
+                if (notifications.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.notifications_off,
+                          size: 50,
+                          color: Colors.grey,
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          "You have no notifications.",
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      ],
                     ),
                   );
                 }
-                final notifications = snapshot.data!.docs;
+
                 return Container(
                   color: Theme.of(context).scaffoldBackgroundColor,
                   child: Column(
                     children: [
+                      // --- HEADER ROW ---
                       Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Text(
-                          "Notifications",
-                          style: Theme.of(context).textTheme.titleLarge,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16.0,
+                          vertical: 12.0,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              "Notifications",
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            // Button to delete all
+                            TextButton.icon(
+                              onPressed: () {
+                                // Calls the function to delete from DB
+                                _clearAllNotifications();
+                              },
+                              icon: const Icon(
+                                Icons.delete_sweep,
+                                color: Colors.red,
+                                size: 20,
+                              ),
+                              label: const Text(
+                                "Clear All",
+                                style: TextStyle(color: Colors.red),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const Divider(height: 1),
+
+                      // ------------------
                       Expanded(
                         child: ListView.builder(
                           controller: scrollController,
@@ -336,24 +452,21 @@ class _HomePageState extends State<HomePage>
                             final notification = notifications[index];
                             final data =
                                 notification.data() as Map<String, dynamic>;
-                            final bool isRead = data['read'] ?? false;
+                            // final bool isRead = data['read'] ?? false;
+
                             return ListTile(
                               leading: Icon(
-                                isRead
-                                    ? Icons.notifications_none
-                                    : Icons.notifications_active,
-                                color: isRead
-                                    ? Colors.grey
-                                    : Theme.of(context).primaryColor,
+                                Icons.notifications_active,
+                                color: Theme.of(context).primaryColor,
                               ),
                               title: Text(data['title'] ?? 'No Title'),
                               subtitle: Text(data['body'] ?? 'No Body'),
                               onTap: () async {
-                                if (!isRead) {
-                                  await notification.reference.update({
-                                    'read': true,
-                                  });
-                                }
+                                // Delete single notification
+                                await notification.reference.delete();
+
+                                // Close panel if you want, or just let it update
+                                // if (mounted) Navigator.pop(context);
                               },
                             );
                           },
@@ -368,7 +481,7 @@ class _HomePageState extends State<HomePage>
         );
       },
     );
-  } 
+  }
 
   Widget _buildSearchResults() {
     if (_isSearching) {
