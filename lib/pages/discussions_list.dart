@@ -1,5 +1,6 @@
-import 'dart:convert'; 
-import 'dart:typed_data'; 
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:chat_app/pages/chatbotPage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
@@ -49,9 +50,14 @@ class _DiscussionsListState extends State<DiscussionsList>
       }
     });
   }
-  
-  void _navigateToChat(String chatId, String receiverId, String receiverName,
-      {String? receiverImageBase64}) { // On passe la chaîne Base64
+
+  void _navigateToChat(
+    String chatId,
+    String receiverId,
+    String receiverName, {
+    String? receiverImageBase64,
+  }) {
+    // On passe la chaîne Base64
     _navigateToWithLoadingIndicator(
       context,
       ChatPage(
@@ -76,19 +82,50 @@ class _DiscussionsListState extends State<DiscussionsList>
         if (snapshot.hasError) {
           return Center(child: Text("Error: ${snapshot.error}"));
         }
+
         final chatDocs = snapshot.data?.docs ?? [];
+
         if (chatDocs.isEmpty) {
           return const Center(
-              child: Text("Start a discussion by searching for a friend!"));
+            child: Text("Start a discussion by searching for a friend!"),
+          );
         }
+
         return ListView.builder(
-          itemCount: chatDocs.length,
+          itemCount: chatDocs.length + 1, // +1 pour AI
           itemBuilder: (context, i) {
-            final chat = chatDocs[i].data() as Map<String, dynamic>;
-            final chatId = chatDocs[i].id;
+            // 1️⃣ Premier item : AI Assistant
+            if (i == 0) {
+              return ListTile(
+                leading: CircleAvatar(
+                  radius: 25,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  child: const Icon(
+                    Icons.smart_toy,
+                    color: Colors.white,
+                    size: 28,
+                  ),
+                ),
+                title: const Text("+216 Assistant"),
+                subtitle: const Text("Talk to your +216 assistant"),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ChatbotPage()),
+                  );
+                },
+              );
+            }
+
+            // 2️⃣ Chats normaux (offset de 1)
+            final chatIndex = i - 1;
+            final chatData = chatDocs[chatIndex].data() as Map<String, dynamic>;
+            final chatId = chatDocs[chatIndex].id;
             final currentUserId = _messageService.getCurrentUserId();
-            
-            final participants = List<String>.from(chat['participants'] ?? []);
+
+            final participants = List<String>.from(
+              chatData['participants'] ?? [],
+            );
             String? receiverId;
             try {
               receiverId = participants.firstWhere(
@@ -106,8 +143,8 @@ class _DiscussionsListState extends State<DiscussionsList>
               future: _friendService.getUserDetails(receiverId),
               builder: (context, userSnapshot) {
                 String name = "Loading...";
-                String imageBase64 = ""; 
-                
+                String imageBase64 = "";
+
                 if (userSnapshot.connectionState == ConnectionState.done &&
                     userSnapshot.hasData &&
                     userSnapshot.data!.exists) {
@@ -128,8 +165,9 @@ class _DiscussionsListState extends State<DiscussionsList>
                     String subtitle = "No messages yet";
                     if (messageSnapshot.hasData &&
                         messageSnapshot.data!.docs.isNotEmpty) {
-                      final lastMessage = messageSnapshot.data!.docs.first
-                          .data() as Map<String, dynamic>;
+                      final lastMessage =
+                          messageSnapshot.data!.docs.first.data()
+                              as Map<String, dynamic>;
                       final String messageContent =
                           lastMessage["text"] ?? "Message unavailable";
                       final String? senderId =
@@ -138,7 +176,7 @@ class _DiscussionsListState extends State<DiscussionsList>
                           ? "You: $messageContent"
                           : messageContent;
                     }
-                    
+
                     return ListTile(
                       leading: StreamBuilder(
                         stream: FirebaseDatabase.instance
@@ -149,8 +187,9 @@ class _DiscussionsListState extends State<DiscussionsList>
                           if (snapshot.hasData &&
                               !snapshot.hasError &&
                               snapshot.data!.snapshot.value != null) {
-                            final data = snapshot.data!.snapshot.value
-                                as Map<dynamic, dynamic>;
+                            final data =
+                                snapshot.data!.snapshot.value
+                                    as Map<dynamic, dynamic>;
                             isOnline = data['state'] == 'online';
                           }
 
@@ -161,8 +200,11 @@ class _DiscussionsListState extends State<DiscussionsList>
                                 backgroundColor: Colors.purple.shade700,
                                 backgroundImage: imageProvider,
                                 child: imageProvider == null
-                                    ? const Icon(Icons.person,
-                                        size: 25, color: Colors.white)
+                                    ? const Icon(
+                                        Icons.person,
+                                        size: 25,
+                                        color: Colors.white,
+                                      )
                                     : null,
                               ),
                               if (isOnline)
@@ -176,8 +218,9 @@ class _DiscussionsListState extends State<DiscussionsList>
                                       color: Colors.green,
                                       shape: BoxShape.circle,
                                       border: Border.all(
-                                        color: Theme.of(context)
-                                            .scaffoldBackgroundColor,
+                                        color: Theme.of(
+                                          context,
+                                        ).scaffoldBackgroundColor,
                                         width: 2,
                                       ),
                                     ),
@@ -188,11 +231,18 @@ class _DiscussionsListState extends State<DiscussionsList>
                         },
                       ),
                       title: Text(name),
-                      subtitle: Text(subtitle,
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                       onTap: () {
-                        _navigateToChat(chatId, receiverId!, name,
-                            receiverImageBase64: imageBase64);
+                        _navigateToChat(
+                          chatId,
+                          receiverId!,
+                          name,
+                          receiverImageBase64: imageBase64,
+                        );
                       },
                     );
                   },

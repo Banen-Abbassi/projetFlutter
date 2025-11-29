@@ -3,6 +3,7 @@ import 'package:chat_app/auth/auth_gate.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'firebase_options.dart';
 import 'themes/light_modes.dart';
 import 'themes/dark_mode.dart';
@@ -30,6 +31,7 @@ const AndroidNotificationChannel channel = AndroidNotificationChannel(
   importance: Importance.max,
 );
 
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
@@ -38,6 +40,16 @@ void main() async {
           AndroidFlutterLocalNotificationsPlugin>()
       ?.createNotificationChannel(channel);
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    // Charger dotenv en sécurisant
+  // Charger dotenv en sécurisant. Le chargement doit être réussi pour que AIService fonctionne.
+  try {
+    await dotenv.load(fileName: ".env");
+    print("✅ .env loaded successfully");
+  } catch (e) {
+    // Si le fichier n'est pas trouvé, on affiche l'erreur mais on ne bloque pas l'app.
+    // Cependant, AIService ne fonctionnera pas.
+    print("⚠️ Warning: Could not load .env file: $e");
+  }
 
   runApp(
     ChangeNotifierProvider(

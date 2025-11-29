@@ -7,7 +7,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
-// --- Imports for Voice Messages ---
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -15,9 +14,62 @@ import 'package:uuid/uuid.dart';
 
 import '../services/profile_service.dart';
 import '../services/message_service.dart';
+import 'call_page.dart';
 import 'visit_profile_page.dart';
+import '../services/call_manager.dart';
+import '../services/call_data.dart';
 
-// +++ Widget for Audio Playback +++
+// --- NEW WIDGET TO PREVENT PHOTO RELOADING ---
+class MessageImageWidget extends StatefulWidget {
+  final String base64Data;
+  final bool isMe;
+
+  const MessageImageWidget({
+    Key? key,
+    required this.base64Data,
+    required this.isMe,
+  }) : super(key: key);
+
+  @override
+  _MessageImageWidgetState createState() => _MessageImageWidgetState();
+}
+
+class _MessageImageWidgetState extends State<MessageImageWidget> {
+  Uint8List? _imageBytes;
+
+  @override
+  void initState() {
+    super.initState();
+    // Decode the image once when the widget is built
+    try {
+      _imageBytes = base64Decode(widget.base64Data);
+    } catch (e) {
+      print("Error decoding image message: $e");
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_imageBytes == null) {
+      return Text(
+        "Unable to load image",
+        style: TextStyle(color: widget.isMe ? Colors.white : Colors.black),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Image.memory(
+        _imageBytes!,
+        fit: BoxFit.cover,
+        // gaplessPlayback is crucial to prevent flickering during updates
+        gaplessPlayback: true,
+      ),
+    );
+  }
+}
+// ---------------------------------------------
+
 class AudioPlayerWidget extends StatefulWidget {
   final String base64Audio;
   final bool isMe;
@@ -46,18 +98,13 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
 
   Future<void> _initializePlayer() async {
     try {
-      // Decode Base64 and write to a temporary file
       final tempDir = await getTemporaryDirectory();
       _audioPath = '${tempDir.path}/${const Uuid().v4()}.aac';
       final file = File(_audioPath!);
       await file.writeAsBytes(base64Decode(widget.base64Audio));
 
       await _player.openPlayer();
-      if(mounted) {
-        setState(() {
-          _isPlayerInitialized = true;
-        });
-      }
+      if (mounted) setState(() => _isPlayerInitialized = true);
     } catch (e) {
       print("Error initializing audio player: $e");
     }
@@ -66,12 +113,9 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   @override
   void dispose() {
     _player.closePlayer();
-    // Clean up the temporary file
     if (_audioPath != null) {
       final file = File(_audioPath!);
-      if (file.existsSync()) {
-        file.delete();
-      }
+      if (file.existsSync()) file.deleteSync();
     }
     super.dispose();
   }
@@ -81,15 +125,15 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
 
     if (_player.isPlaying) {
       await _player.pausePlayer();
-      if(mounted) setState(() => _isPlaying = false);
+      if (mounted) setState(() => _isPlaying = false);
     } else {
       await _player.startPlayer(
         fromURI: _audioPath!,
         whenFinished: () {
-          if(mounted) setState(() => _isPlaying = false);
+          if (mounted) setState(() => _isPlaying = false);
         },
       );
-      if(mounted) setState(() => _isPlaying = true);
+      if (mounted) setState(() => _isPlaying = true);
     }
   }
 
@@ -103,11 +147,12 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
           icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow, color: color),
           onPressed: _togglePlayer,
         ),
-        Icon(Icons.graphic_eq, color: color), // Placeholder for waveform
+        Icon(Icons.graphic_eq, color: color), 
       ],
     );
   }
 }
+
 
 
 class ChatPage extends StatefulWidget {
@@ -132,44 +177,56 @@ class _ChatPageState extends State<ChatPage> {
   final MessageService _messageService = MessageService();
   final TextEditingController _controller = TextEditingController();
   final ImagePicker _picker = ImagePicker();
-
-  // --- Voice Recording State ---
   final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
+  
   bool _isRecorderInitialized = false;
   bool _isRecording = false;
   bool _isCancelling = false;
+
+  final ScrollController _scrollController = ScrollController();
+  
+  // Cache for the profile picture to prevent reloading in AppBar
+  ImageProvider? _cachedProfileImage;
 
   @override
   void initState() {
     super.initState();
     _initializeRecorder();
+    _cacheProfileImage();
+  }
+
+  void _cacheProfileImage() {
+    if (widget.receiverImageUrl != null && widget.receiverImageUrl!.isNotEmpty) {
+      try {
+        final Uint8List imageBytes = base64Decode(widget.receiverImageUrl!);
+        _cachedProfileImage = MemoryImage(imageBytes);
+      } catch (e) {
+        print("Error decoding profile image: $e");
+      }
+    }
   }
 
   @override
   void dispose() {
     _recorder.closeRecorder();
     _controller.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
-
-  // --- Voice Recording Methods with Cancel Logic ---
 
   Future<void> _initializeRecorder() async {
     final status = await Permission.microphone.request();
     if (status != PermissionStatus.granted) {
       print('Microphone permission not granted');
-      // Optionally, show a SnackBar to the user
       return;
     }
     await _recorder.openRecorder();
-    if (mounted) {
-      setState(() => _isRecorderInitialized = true);
-    }
+    if (mounted) setState(() => _isRecorderInitialized = true);
   }
 
   Future<void> _startRecording() async {
     if (!_isRecorderInitialized) return;
-    
+
     final tempDir = await getTemporaryDirectory();
     final path = '${tempDir.path}/${const Uuid().v4()}.aac';
 
@@ -178,7 +235,7 @@ class _ChatPageState extends State<ChatPage> {
     if (mounted) {
       setState(() {
         _isRecording = true;
-        _isCancelling = false; // Reset cancel state every time
+        _isCancelling = false;
       });
     }
   }
@@ -189,78 +246,46 @@ class _ChatPageState extends State<ChatPage> {
     if (_isCancelling) {
       return _cancelRecording();
     }
-    
-    final path = await _recorder.stopRecorder();
 
+    final path = await _recorder.stopRecorder();
     if (mounted) setState(() => _isRecording = false);
-    
     if (path == null) return;
 
     final file = File(path);
     if (await file.exists()) {
-      final fileLength = await file.length();
-      if (fileLength < 1000) { // 1KB threshold
-        print('Recording too short, discarding.');
-        await file.delete();
-      } else {
-        final bytes = await file.readAsBytes();
-        final base64String = base64Encode(bytes);
-        _sendMediaMessage(base64String, 'audio', fileName: 'Voice Message');
-        await file.delete();
-      }
+      final bytes = await file.readAsBytes();
+      final base64String = base64Encode(bytes);
+      _sendMediaMessage(base64String, 'audio', fileName: 'Voice Message');
+      await file.delete();
     }
   }
 
   Future<void> _cancelRecording() async {
-    print("--- Cancelling recording ---");
     final path = await _recorder.stopRecorder();
-    
     if (mounted) {
       setState(() {
-        _isRecording = false;
-        _isCancelling = false;
-      });
+      _isRecording = false;
+      _isCancelling = false;
+    });
     }
-    
     if (path != null) {
       final file = File(path);
-      if (await file.exists()) {
-        await file.delete();
-      }
+      if (await file.exists()) await file.delete();
     }
   }
-  
+
   void _handleLongPressMoveUpdate(LongPressMoveUpdateDetails details) {
     if (details.localOffsetFromOrigin.dx < -50) {
-      if (!_isCancelling) {
-        if (mounted) setState(() => _isCancelling = true);
-      }
+      if (!_isCancelling) if (mounted) setState(() => _isCancelling = true);
     } else {
-      if (_isCancelling) {
-        if (mounted) setState(() => _isCancelling = false);
-      }
-    }
-  }
-
-  // --- Other Methods ---
-
-  ImageProvider? _getImageProvider(String? base64String) {
-    if (base64String == null || base64String.isEmpty) return null;
-    try {
-      final Uint8List imageBytes = base64Decode(base64String);
-      return MemoryImage(imageBytes);
-    } catch (e) {
-      print("Erreur de décodage de l'image Base64 dans ChatPage : $e");
-      return null;
+      if (_isCancelling) if (mounted) setState(() => _isCancelling = false);
     }
   }
 
   void _navigateToUserProfile() async {
     final profileService = ProfileSercice();
     final userData = await profileService.getUserData(widget.receiverId);
-
     if (!mounted) return;
-
     if (userData != null) {
       userData['uid'] = widget.receiverId;
       Navigator.push(
@@ -284,18 +309,55 @@ class _ChatPageState extends State<ChatPage> {
     setState(() {});
   }
 
-  void _startVoiceCall() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Voice call feature coming soon!")),
-    );
-  }
-
   void _startVideoCall() {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text("Video call feature coming soon!")),
     );
   }
-  
+
+  Future<void> _startVoiceCall() async {
+  final currentUser = FirebaseAuth.instance.currentUser;
+  if (currentUser == null) return;
+
+  final callManager = CallManager();
+
+  final result = await callManager.startCall(
+    callerId: currentUser.uid,
+    receiverId: widget.receiverId,
+    callerName: currentUser.displayName ?? 'Unknown',
+    receiverName: widget.receiverName,
+    callType: CallType.voice,
+  );
+
+  if (!result.success || result.callId == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(result.errorMessage ?? 'Failed to start call')),
+    );
+    return;
+  }
+
+  // Récupérer les infos de l’appel
+  final callDoc = await FirebaseFirestore.instance
+      .collection('calls')
+      .doc(result.callId)
+      .get();
+
+  final callData = CallData.fromMap(callDoc.data()!);
+
+  if (!mounted) return;
+
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => CallScreen(
+        callData: callData,
+        isIncoming: false,
+        currentUserId: currentUser.uid,
+      ),
+    ),
+  );
+}
+
+
   void _sendMediaMessage(String base64Data, String type, {String? fileName}) {
     String messageText;
     switch (type) {
@@ -321,7 +383,6 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _pickAttachment() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles();
-
     if (result != null) {
       File file = File(result.files.single.path!);
       Uint8List fileBytes = await file.readAsBytes();
@@ -332,7 +393,6 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _pickImage() async {
     final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery);
-
     if (pickedFile != null) {
       File file = File(pickedFile.path);
       Uint8List imageBytes = await file.readAsBytes();
@@ -351,18 +411,14 @@ class _ChatPageState extends State<ChatPage> {
 
   Widget _buildMessageContent(Map<String, dynamic> msg, bool isMe) {
     final type = msg['type'] ?? 'text';
-
     switch (type) {
       case 'image':
-        final imageProvider = _getImageProvider(msg['base64Data']);
-        if (imageProvider != null) {
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: Image(image: imageProvider, fit: BoxFit.cover),
-          );
-        }
-        return Text("Impossible de charger l'image", style: TextStyle(color: isMe ? Colors.white : Colors.black));
-      
+        // USE THE CACHED WIDGET HERE
+        return MessageImageWidget(
+          base64Data: msg['base64Data'] ?? '',
+          isMe: isMe,
+        );
+
       case 'audio':
         final base64Audio = msg['base64Data'];
         if (base64Audio != null) {
@@ -378,7 +434,7 @@ class _ChatPageState extends State<ChatPage> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                msg['fileName'] ?? 'Fichier',
+                msg['fileName'] ?? 'File',
                 style: TextStyle(color: isMe ? Colors.white : Colors.black),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -395,8 +451,6 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
-    final imageProvider = _getImageProvider(widget.receiverImageUrl);
-    
     String getHintText() {
       if (_isCancelling) return "< Slide to cancel";
       if (_isRecording) return "Recording... Release to send";
@@ -409,23 +463,20 @@ class _ChatPageState extends State<ChatPage> {
         foregroundColor: Colors.white,
         title: GestureDetector(
           onTap: _navigateToUserProfile,
-          behavior: HitTestBehavior.translucent,
           child: Row(
             children: [
               CircleAvatar(
                 radius: 18,
                 backgroundColor: Colors.white24,
-                backgroundImage: imageProvider,
-                child: imageProvider == null
-                    ? const Icon(Icons.person, color: Colors.white, size: 22)
-                    : null,
+                // Use cached profile image
+                backgroundImage: _cachedProfileImage,
+                child: _cachedProfileImage == null ? const Icon(Icons.person, color: Colors.white, size: 22) : null,
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   widget.receiverName,
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold),
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -433,14 +484,8 @@ class _ChatPageState extends State<ChatPage> {
           ),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.call),
-            onPressed: _startVoiceCall,
-          ),
-          IconButton(
-            icon: const Icon(Icons.videocam),
-            onPressed: _startVideoCall,
-          ),
+          IconButton(icon: const Icon(Icons.call), onPressed: _startVoiceCall),
+
         ],
       ),
       body: Column(
@@ -449,19 +494,23 @@ class _ChatPageState extends State<ChatPage> {
             child: StreamBuilder<QuerySnapshot>(
               stream: _messageService.getMessagesStream(widget.chatId),
               builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
-                }
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+                if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-                final messages = snapshot.data!.docs;
+                final messages = snapshot.data!.docs; 
                 final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (_scrollController.hasClients) {
+                    _scrollController.jumpTo(_scrollController.position.minScrollExtent);
+                  }
+                });
+
                 return ListView.builder(
-                  reverse: true,
+                  controller: _scrollController,
+                  reverse: true, 
                   itemCount: messages.length,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
                   itemBuilder: (context, index) {
                     final msg = messages[index].data() as Map<String, dynamic>;
                     final isMe = msg['senderId'] == currentUserId;
@@ -469,25 +518,15 @@ class _ChatPageState extends State<ChatPage> {
                     final type = msg['type'] ?? 'text';
 
                     return Align(
-                      alignment:
-                          isMe ? Alignment.centerRight : Alignment.centerLeft,
+                      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                       child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxWidth: MediaQuery.of(context).size.width * 0.75,
-                        ),
+                        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
                         child: IntrinsicWidth(
                           child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 8),
-                            margin: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: isMe
-                                  ? Theme.of(context)
-                                      .colorScheme
-                                      .primary
-                                      .withOpacity(0.85)
-                                  : Colors.grey[300],
+                              color: isMe ? Theme.of(context).colorScheme.primary.withOpacity(0.85) : Colors.grey[300],
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Column(
@@ -508,12 +547,7 @@ class _ChatPageState extends State<ChatPage> {
                                   alignment: Alignment.bottomRight,
                                   child: Text(
                                     _formatTimestamp(timestamp),
-                                    style: TextStyle(
-                                      color: isMe
-                                          ? Colors.white70
-                                          : Colors.black54,
-                                      fontSize: 10,
-                                    ),
+                                    style: TextStyle(color: isMe ? Colors.white70 : Colors.black54, fontSize: 10),
                                   ),
                                 ),
                               ],
@@ -532,14 +566,8 @@ class _ChatPageState extends State<ChatPage> {
             child: Row(
               children: [
                 if (!_isRecording) ...[
-                  IconButton(
-                    icon: const Icon(Icons.attach_file, color: Colors.grey),
-                    onPressed: _pickAttachment,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.photo_camera, color: Colors.grey),
-                    onPressed: _pickImage,
-                  ),
+                  IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _pickAttachment),
+                  IconButton(icon: const Icon(Icons.photo_camera, color: Colors.grey), onPressed: _pickImage),
                 ],
                 Expanded(
                   child: TextField(
@@ -547,12 +575,9 @@ class _ChatPageState extends State<ChatPage> {
                     onChanged: (text) => setState(() {}),
                     readOnly: _isRecording,
                     decoration: InputDecoration(
-                      hintText: getHintText(), 
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
+                      hintText: getHintText(),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
                   ),
                 ),
@@ -564,7 +589,7 @@ class _ChatPageState extends State<ChatPage> {
                     child: Padding(
                       padding: const EdgeInsets.all(8.0),
                       child: Icon(
-                        _isCancelling ? Icons.delete : Icons.mic, 
+                        _isCancelling ? Icons.delete : Icons.mic,
                         color: _isRecording ? Colors.red : Theme.of(context).colorScheme.primary,
                         size: 28,
                       ),
@@ -572,8 +597,7 @@ class _ChatPageState extends State<ChatPage> {
                   )
                 else
                   IconButton(
-                    icon: Icon(Icons.send,
-                        color: Theme.of(context).colorScheme.primary),
+                    icon: Icon(Icons.send, color: Theme.of(context).colorScheme.primary),
                     onPressed: _sendMessage,
                   ),
               ],

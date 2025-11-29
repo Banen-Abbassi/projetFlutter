@@ -3,11 +3,16 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:chat_app/services/ai_service.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../auth/auth_service.dart';
+import '../services/call_data.dart';
+import '../services/call_manager.dart';
 import '../services/friend_service.dart';
 import '../services/message_service.dart';
+import 'call_page.dart';
+import 'incoming_call_screen.dart';
 import 'profile_page.dart';
 import 'friend_requests_page.dart';
 import 'chat_page.dart';
@@ -27,6 +32,8 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
+  late final AIService ai;
+
   final FriendService _friendService = FriendService();
   final MessageService _messageService = MessageService();
   final TextEditingController _searchCtrl = TextEditingController();
@@ -43,16 +50,92 @@ class _HomePageState extends State<HomePage>
   int _unreadNotificationCount = 0;
   StreamSubscription<int>? _unreadNotificationSubscription;
 
+  final CallManager _callManager = CallManager();
+late StreamSubscription<CallData> _incomingCallSubscription;
+
   @override
   void initState() {
     super.initState();
+    ai = AIService();
     _tabController = TabController(length: 2, vsync: this);
     _searchCtrl.addListener(_onSearchChanged);
     _listenToFriendRequests();
     _listenForNewNotifications();
     _listenToUnreadNotifications();
     _presenceService.setupPresence();
+    _initializeCallManager();
   }
+
+  void _initializeCallManager() {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId != null) {
+      _callManager.initialize(currentUserId);
+      _listenToIncomingCalls();
+    }
+  }
+
+
+
+  void _listenToIncomingCalls() {
+    _incomingCallSubscription = _callManager.listenForIncomingCalls().listen((callData) {
+      if (!mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => IncomingCallScreen(
+            callData: callData,
+            currentUserId: _callManager.currentUserId!,
+          ),
+        ),
+      );
+    });
+  }
+
+void _startCall(String receiverId, String receiverName) async {
+  final currentUserId = _callManager.currentUserId;
+  if (currentUserId == null) return;
+
+  final result = await _callManager.startCall(
+    callerId: currentUserId,
+    callerName: 'Your Name',
+    receiverId: receiverId,
+    receiverName: receiverName,
+    callType: CallType.voice,
+  );
+
+  if (!mounted) return;
+
+  if (result.success && result.callId != null) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          callData: CallData(
+            callId: result.callId!,
+            callerId: currentUserId,
+            callerName: 'Your Name',
+            receiverId: receiverId,
+            receiverName: receiverName,
+            status: CallStatus.ringing,
+            callType: CallType.voice,
+            startedAt: DateTime.now(),
+
+          ),
+          isIncoming: false,
+          currentUserId: currentUserId,
+        ),
+      ),
+    );
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Failed to start call: ${result.errorMessage}')),
+    );
+  }
+}
+
+
+
 
   @override
   void dispose() {
@@ -63,6 +146,9 @@ class _HomePageState extends State<HomePage>
     _requestCountSubscription?.cancel();
     _notificationSubscription?.cancel();
     _unreadNotificationSubscription?.cancel();
+    _incomingCallSubscription?.cancel();
+    _callManager.dispose();
+
     super.dispose();
   }
 
@@ -78,60 +164,62 @@ class _HomePageState extends State<HomePage>
   }
 
   void _listenForNewNotifications() {
-    _notificationSubscription =
-        _friendService.getNewNotificationsStream().listen((snapshot) async {
-      for (var change in snapshot.docChanges) {
-        if (change.type == DocumentChangeType.added) {
-          final notificationData =
-              change.doc.data() as Map<String, dynamic>?;
-          if (notificationData == null) continue;
+    _notificationSubscription = _friendService
+        .getNewNotificationsStream()
+        .listen((snapshot) async {
+          for (var change in snapshot.docChanges) {
+            if (change.type == DocumentChangeType.added) {
+              final notificationData =
+                  change.doc.data() as Map<String, dynamic>?;
+              if (notificationData == null) continue;
 
-          final String type = notificationData['type'] ?? '';
+              final String type = notificationData['type'] ?? '';
 
-          if (type == 'friend_request') {
-            final fromUid = notificationData['senderId'];
-            if (fromUid != null) {
-              final userDoc = await _friendService.getUserDetails(fromUid);
-              final senderName = userDoc.data() != null
-                  ? (userDoc.data()! as Map)['name'] ?? 'Someone'
-                  : 'Someone';
+              if (type == 'friend_request') {
+                final fromUid = notificationData['senderId'];
+                if (fromUid != null) {
+                  final userDoc = await _friendService.getUserDetails(fromUid);
+                  final senderName = userDoc.data() != null
+                      ? (userDoc.data()! as Map)['name'] ?? 'Someone'
+                      : 'Someone';
 
-              NotificationService.showInAppNotification(
-                title: "New Friend Request",
-                body: "$senderName sent you a friend request.",
-                onTap: () =>
-                    _navigateToWithLoadingIndicator(FriendRequestsPage()),
-              );
-            }
-          } else if (type == 'new_message') {
-            final String senderName =
-                notificationData['title'] ?? 'New Message';
-            final String messageBody = notificationData['body'] ?? '...';
-            final String chatId = notificationData['chatId'] ?? '';
-            final String senderId = notificationData['senderId'] ?? '';
+                  NotificationService.showInAppNotification(
+                    title: "New Friend Request",
+                    body: "$senderName sent you a friend request.",
+                    onTap: () =>
+                        _navigateToWithLoadingIndicator(FriendRequestsPage()),
+                  );
+                }
+              } else if (type == 'new_message') {
+                final String senderName =
+                    notificationData['title'] ?? 'New Message';
+                final String messageBody = notificationData['body'] ?? '...';
+                final String chatId = notificationData['chatId'] ?? '';
+                final String senderId = notificationData['senderId'] ?? '';
 
-            if (chatId.isNotEmpty && senderId.isNotEmpty) {
-              NotificationService.showInAppNotification(
-                title: senderName,
-                body: messageBody,
-                onTap: () => _navigateToChat(chatId, senderId, senderName),
-              );
+                if (chatId.isNotEmpty && senderId.isNotEmpty) {
+                  NotificationService.showInAppNotification(
+                    title: senderName,
+                    body: messageBody,
+                    onTap: () => _navigateToChat(chatId, senderId, senderName),
+                  );
+                }
+              }
             }
           }
-        }
-      }
-    });
+        });
   }
 
   void _listenToUnreadNotifications() {
-    _unreadNotificationSubscription =
-        _friendService.getUnreadNotificationCountStream().listen((count) {
-      if (mounted) {
-        setState(() {
-          _unreadNotificationCount = count;
+    _unreadNotificationSubscription = _friendService
+        .getUnreadNotificationCountStream()
+        .listen((count) {
+          if (mounted) {
+            setState(() {
+              _unreadNotificationCount = count;
+            });
+          }
         });
-      }
-    });
   }
 
   void _navigateToWithLoadingIndicator(Widget page) async {
@@ -149,14 +237,15 @@ class _HomePageState extends State<HomePage>
   }
 
   void _listenToFriendRequests() {
-    _requestCountSubscription =
-        _friendService.getIncomingRequestsCountStream().listen((count) {
-      if (mounted) {
-        setState(() {
-          _requestCount = count;
+    _requestCountSubscription = _friendService
+        .getIncomingRequestsCountStream()
+        .listen((count) {
+          if (mounted) {
+            setState(() {
+              _requestCount = count;
+            });
+          }
         });
-      }
-    });
   }
 
   void _onSearchChanged() {
@@ -227,8 +316,12 @@ class _HomePageState extends State<HomePage>
     _navigateToWithLoadingIndicator(VisitProfilePage(user: user));
   }
 
-  void _navigateToChat(String chatId, String receiverId, String receiverName,
-      {String? receiverImageUrl}) {
+  void _navigateToChat(
+    String chatId,
+    String receiverId,
+    String receiverName, {
+    String? receiverImageUrl,
+  }) {
     _navigateToWithLoadingIndicator(
       ChatPage(
         chatId: chatId,
@@ -239,6 +332,29 @@ class _HomePageState extends State<HomePage>
     );
   }
 
+  // --- NEW FUNCTION: Deletes all notifications from Firestore ---
+  Future<void> _clearAllNotifications() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+
+    final collection = FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('notifications');
+
+    final snapshots = await collection.get();
+
+    if (snapshots.docs.isEmpty) return;
+
+    // Use a batch to delete all at once (more efficient)
+    final batch = FirebaseFirestore.instance.batch();
+    for (var doc in snapshots.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+  }
+
+  // --- UPDATED PANEL: Includes "Clear All" button in the header ---
   void _showNotificationsPanel() {
     final userId = FirebaseAuth.instance.currentUser?.uid;
     if (userId == null) return;
@@ -265,30 +381,69 @@ class _HomePageState extends State<HomePage>
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(20.0),
-                      child: Text(
-                        "You have no notifications.",
-                        style: TextStyle(fontSize: 16),
-                      ),
+
+                final notifications = snapshot.data?.docs ?? [];
+
+                // If empty, show simplified empty view
+                if (notifications.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.notifications_off,
+                          size: 50,
+                          color: Colors.grey,
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          "You have no notifications.",
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      ],
                     ),
                   );
                 }
-                final notifications = snapshot.data!.docs;
+
                 return Container(
                   color: Theme.of(context).scaffoldBackgroundColor,
                   child: Column(
                     children: [
+                      // --- HEADER ROW ---
                       Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Text(
-                          "Notifications",
-                          style: Theme.of(context).textTheme.titleLarge,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16.0,
+                          vertical: 12.0,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              "Notifications",
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            // Button to delete all
+                            TextButton.icon(
+                              onPressed: () {
+                                // Calls the function to delete from DB
+                                _clearAllNotifications();
+                              },
+                              icon: const Icon(
+                                Icons.delete_sweep,
+                                color: Colors.red,
+                                size: 20,
+                              ),
+                              label: const Text(
+                                "Clear All",
+                                style: TextStyle(color: Colors.red),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const Divider(height: 1),
+
+                      // ------------------
                       Expanded(
                         child: ListView.builder(
                           controller: scrollController,
@@ -297,23 +452,21 @@ class _HomePageState extends State<HomePage>
                             final notification = notifications[index];
                             final data =
                                 notification.data() as Map<String, dynamic>;
-                            final bool isRead = data['read'] ?? false;
+                            // final bool isRead = data['read'] ?? false;
+
                             return ListTile(
                               leading: Icon(
-                                isRead
-                                    ? Icons.notifications_none
-                                    : Icons.notifications_active,
-                                color: isRead
-                                    ? Colors.grey
-                                    : Theme.of(context).primaryColor,
+                                Icons.notifications_active,
+                                color: Theme.of(context).primaryColor,
                               ),
                               title: Text(data['title'] ?? 'No Title'),
                               subtitle: Text(data['body'] ?? 'No Body'),
                               onTap: () async {
-                                if (!isRead) {
-                                  await notification.reference
-                                      .update({'read': true});
-                                }
+                                // Delete single notification
+                                await notification.reference.delete();
+
+                                // Close panel if you want, or just let it update
+                                // if (mounted) Navigator.pop(context);
                               },
                             );
                           },
@@ -328,7 +481,7 @@ class _HomePageState extends State<HomePage>
         );
       },
     );
-  } // <-- L'ERREUR DE SYNTAXE A ÉTÉ CORRIGÉE ICI. La méthode se termine correctement.
+  }
 
   Widget _buildSearchResults() {
     if (_isSearching) {
@@ -399,8 +552,7 @@ class _HomePageState extends State<HomePage>
                             backgroundColor: Colors.white,
                             backgroundImage: imageProvider,
                             child: imageProvider == null
-                                ? const Icon(Icons.person,
-                                    color: Colors.purple)
+                                ? const Icon(Icons.person, color: Colors.purple)
                                 : null,
                           ),
                         );
@@ -421,8 +573,10 @@ class _HomePageState extends State<HomePage>
                     Stack(
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.notifications,
-                              color: Colors.white),
+                          icon: const Icon(
+                            Icons.notifications,
+                            color: Colors.white,
+                          ),
                           onPressed: _showNotificationsPanel,
                         ),
                         if (_unreadNotificationCount > 0)
@@ -444,6 +598,7 @@ class _HomePageState extends State<HomePage>
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 10,
+                                  fontWeight: FontWeight.bold,
                                 ),
                                 textAlign: TextAlign.center,
                               ),
@@ -465,8 +620,10 @@ class _HomePageState extends State<HomePage>
                     style: const TextStyle(color: Colors.black87),
                     decoration: InputDecoration(
                       border: InputBorder.none,
-                      prefixIcon:
-                          Icon(Icons.search, color: Colors.grey.shade600),
+                      prefixIcon: Icon(
+                        Icons.search,
+                        color: Colors.grey.shade600,
+                      ),
                       suffixIcon: _searchCtrl.text.isNotEmpty
                           ? IconButton(
                               icon: const Icon(Icons.clear),
@@ -478,8 +635,10 @@ class _HomePageState extends State<HomePage>
                             )
                           : null,
                       hintText: "Search friends or chats",
-                      hintStyle:
-                          TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                      hintStyle: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                 ),

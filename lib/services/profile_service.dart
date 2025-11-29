@@ -37,4 +37,22 @@ class ProfileSercice {
       print("Erreur lors de la mise à jour des données utilisateur : $e");
     }
   }
+  
+    Future<void> saveFCMToken(String? token) async {
+    final String? uid = _auth.currentUser?.uid;
+
+    if (uid == null || token == null) {
+      print("Aucun utilisateur connecté ou token FCM non disponible.");
+      return;
+    }
+
+    try {
+      await _firestore.collection('users').doc(uid).update({
+        'fcmToken': token,
+      });
+      print("Token FCM enregistré pour l'utilisateur $uid");
+    } catch (e) {
+      print("Erreur lors de l'enregistrement du token FCM : $e");
+    }
+  }
 }
